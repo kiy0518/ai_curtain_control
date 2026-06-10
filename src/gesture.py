@@ -1,8 +1,8 @@
 """Map 21 hand keypoints to a curtain-control gesture.
 
 Gestures:
-  * OPEN  (열림)  : 👍 thumb out + UP,   other 4 fingers folded
-  * CLOSE (닫힘)  : 👈 thumb out + SIDE, other 4 fingers folded
+  * OPEN  (열림)  : 👈 thumb out + SIDE, other 4 fingers folded
+  * CLOSE (닫힘)  : 👍 thumb out + UP,   other 4 fingers folded
   * STOP  (정지)  : 🖐 open palm — all 4 fingers (index/middle/ring/pinky) extended
 
 A finger is "extended" when its tip is farther from the wrist than its PIP
@@ -57,8 +57,8 @@ def classify(kpts):
     """Return 'OPEN' / 'CLOSE' / 'STOP' or None.
 
     🖐 open palm(4손가락 펴짐) → STOP
-    👍 주먹+엄지 위  → OPEN
-    👈 주먹+엄지 옆  → CLOSE
+    👈 주먹+엄지 옆  → OPEN
+    👍 주먹+엄지 위  → CLOSE
     """
     st = extended_fingers(kpts)
     n = sum(st.values())            # index/middle/ring/pinky extended count
@@ -67,10 +67,10 @@ def classify(kpts):
         return "STOP"
     if n <= 1:                      # fist — thumb direction decides
         pose = _thumb_pose(kpts)
-        if pose == "up":
-            return "OPEN"
         if pose == "side":
-            return "CLOSE"
+            return "OPEN"           # 👈 엄지 옆 = 열림
+        if pose == "up":
+            return "CLOSE"          # 👍 엄지 위 = 닫힘
     return None
 
 
