@@ -21,15 +21,15 @@
 ┌───────────────── ROCK 4D (엣지 디바이스) ─────────────────┐
 │ IMX415 ─► ISP 캡처 ─► RKNN NPU(손키포인트) ─► 제스처 엔진   │
 │                                   │                        │
-│   모터 컨트롤러(시리얼) ◄─ 제어로직 ◄┤◄── 스케줄러/자동화     │
-│   (UART, 개/폐/정지·속도고정)      │                        │
+│   모터 컨트롤러(시리얼) ◄─ 제어로직 ◄┼◄── 스케줄러/자동화     │
+│   (UART, 개/폐/정지·속도고정)      │◄── BLE 서버(GATT) ◄────┼─BLE─ Flutter 리모컨 앱
 │                                   ▼                        │
-│         앱 서버(FastAPI/Flask) ── REST/WebSocket ── 대시보드 │
-│                                   │                        │
+│         앱 서버(stdlib) ── REST/MJPEG ── 대시보드(PWA)       │
 └───────────────────────────────────┼────────────────────────┘
                                      ▼  (고유 주소/터널)
                           웹/모바일(PWA) · 원격 사용자
 ```
+> 제어 입력 = 제스처 / 대시보드(웹) / 스케줄 / **BLE 리모컨 앱** — 모두 단일 `CurtainController` 로 수렴.
 
 핵심 모듈(목표):
 - **vision/**: 캡처·추론·제스처 (현재 `src/`).
@@ -98,6 +98,12 @@
 - [ ] OTA 업데이트
 - [ ] 안정성 테스트 → v1.0.0
 
+### Phase 7 — 유저 리모컨 앱 (Flutter + BLE) (v1.1.0)  ☞ `10_FLUTTER_BLE_REMOTE.md`
+- [ ] 보드 BLE 주변장치(GATT 서버, BlueZ) — 커튼 제어 서비스
+- [ ] Flutter 앱(BLE Central): 열기/닫기/정지 + 상태 notify
+- [ ] BLE 본딩(페어링) 보안, 자동 재연결
+- [ ] Android APK 빌드
+
 ---
 
 ## 4. 버전 관리 정책
@@ -131,5 +137,7 @@ git push origin v0.2.0
 | 스케줄 | APScheduler, astral(일출/일몰) |
 | 원격 | 등록기 + FRP/cloudflared (Azone_Gateway 패턴 참고) |
 | 저장 | SQLite (설정·스케줄·프로파일·이력) — 스키마는 `04_*` 데이터모델 절 |
+| 리모컨 앱 | **Flutter**(Material 3) + **BLE**(`flutter_blue_plus`) |
+| BLE 서버(보드) | BlueZ + Python(`bless`/`bluezero`) GATT 주변장치 |
 
 > **조기 결정 필요**: **단일 계정 vs 다중 계정** — SQLite 스키마·인증(`07_*`)·개인화(`05_*`)에 영향.
