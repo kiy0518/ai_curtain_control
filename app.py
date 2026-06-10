@@ -221,6 +221,9 @@ DASHBOARD_HTML = """<!doctype html>
    <label>신뢰도(conf) — 0.05 ~ 0.95 (숫자 입력)</label>
    <input type="number" id="conf" min="0.05" max="0.95" step="0.05" inputmode="decimal"
           onchange="setConf()">
+   <label>제스처 확정 카운트 — 연속 N회 (1~30)</label>
+   <input type="number" id="hold" min="1" max="30" step="1" inputmode="numeric"
+          onchange="setHold()">
    <label style="display:flex;align-items:center;gap:12px;margin-top:16px">제스처 인식 사용
      <span class="switch"><input type="checkbox" id="gest" onchange="setGest()"><span class="tr"></span><span class="kn"></span></span>
    </label>
@@ -259,6 +262,8 @@ async function setConf(){ let v=parseFloat($('conf').value);
   if(isNaN(v)) return; v=Math.min(0.95,Math.max(0.05,v)); $('conf').value=v;
   await fetch('/api/settings',{method:'POST',body:JSON.stringify({conf:v})}); toast('신뢰도 저장됨 '+v.toFixed(2)); }
 async function setGest(){ await fetch('/api/settings',{method:'POST',body:JSON.stringify({gesture_enabled:$('gest').checked})}); toast('저장됨'); }
+async function setHold(){ let h=parseInt($('hold').value); if(isNaN(h))return; h=Math.min(30,Math.max(1,h)); $('hold').value=h;
+  await fetch('/api/settings',{method:'POST',body:JSON.stringify({hold:h})}); toast('확정 카운트 '+h+'회 저장됨'); }
 async function saveLoc(){ await fetch('/api/settings',{method:'POST',body:JSON.stringify({lat:parseFloat($('lat').value),lon:parseFloat($('lon').value)})}); toast('위치 저장됨'); }
 async function setRemote(){ const en=$('rem').checked; $('remurl').textContent=en?'터널 생성중… (몇 초)':'';
   await fetch('/api/remote',{method:'POST',body:JSON.stringify({enable:en})}); }
@@ -323,6 +328,7 @@ async function poll(){
      s.profiles.forEach(p=>{const o=document.createElement('option');o.value=p.name;o.textContent=p.name+' ('+p.num_keypoints+'kp '+p.imgsz+')';sel.appendChild(o);});
      sel.value=s.engine.profile;
      $('conf').value=(+s.engine.conf).toFixed(2);
+     $('hold').value=s.engine.hold;
      $('gest').checked=s.engine.gesture_enabled;
      if(s.location){$('lat').value=s.location.lat||''; $('lon').value=s.location.lon||'';}
      profilesLoaded=true;
@@ -525,6 +531,10 @@ def make_handler(proc, engine, controller, remote):
                     g = bool(data["gesture_enabled"])
                     engine.set_gesture_enabled(g)
                     store.set_setting("gesture_enabled", "1" if g else "0")
+                if "hold" in data:
+                    h = max(1, int(data["hold"]))
+                    engine.set_hold(h)
+                    store.set_setting("hold", h)
                 if "lat" in data:
                     store.set_setting("lat", float(data["lat"]))
                 if "lon" in data:
@@ -590,12 +600,17 @@ def main():
         saved_conf = float(store.get_setting("conf"))
     except (TypeError, ValueError):
         saved_conf = args.conf
-    engine = PoseEngine(saved_profile, conf=saved_conf, controller=controller)
+    try:
+        saved_hold = int(store.get_setting("hold"))
+    except (TypeError, ValueError):
+        saved_hold = 3
+    engine = PoseEngine(saved_profile, conf=saved_conf, controller=controller,
+                        hold=saved_hold)
     g = store.get_setting("gesture_enabled")
     if g is not None:
         engine.set_gesture_enabled(g == "1")
-    log.info("settings: profile=%s conf=%.2f gesture=%s",
-             saved_profile, saved_conf, engine.gesture_enabled)
+    log.info("settings: profile=%s conf=%.2f gesture=%s hold=%d",
+             saved_profile, saved_conf, engine.gesture_enabled, engine.hold)
     scheduler = SchedulerThread(controller)
     scheduler.start()
     remote = RemoteManager(args.port)

@@ -14,11 +14,12 @@ from draw import draw_detections, draw_gesture_banner
 
 
 class PoseEngine:
-    def __init__(self, profile_name, conf=0.3, controller=None):
+    def __init__(self, profile_name, conf=0.3, controller=None, hold=3):
         self.conf = conf
         self.controller = controller
         self.gesture_enabled = True
-        self.stabilizer = GestureStabilizer(hold=5)
+        self.hold = max(1, int(hold))          # consecutive frames to confirm
+        self.stabilizer = GestureStabilizer(hold=self.hold)
 
         self._lock = threading.Lock()
         self.model = None
@@ -36,7 +37,7 @@ class PoseEngine:
                                     model_path=model_path)
         with self._lock:
             old, self.model, self.profile = self.model, new, prof
-            self.stabilizer = GestureStabilizer(hold=5)
+            self.stabilizer = GestureStabilizer(hold=self.hold)
             self._committed = None
         if old is not None:
             old.release()
@@ -50,6 +51,13 @@ class PoseEngine:
 
     def set_gesture_enabled(self, enabled):
         self.gesture_enabled = bool(enabled)
+
+    def set_hold(self, hold):
+        """Set the consecutive-frame count needed to confirm a gesture."""
+        with self._lock:
+            self.hold = max(1, int(hold))
+            self.stabilizer = GestureStabilizer(hold=self.hold)
+            self._committed = None
 
     def release(self):
         with self._lock:
@@ -100,6 +108,7 @@ class PoseEngine:
             "num_keypoints": prof.num_keypoints,
             "conf": self.conf,
             "gesture_enabled": self.gesture_enabled,
+            "hold": self.hold,
             **self.stats,
         }
 
