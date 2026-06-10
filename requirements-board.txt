@@ -1,0 +1,8 @@
+# 보드(ROCK 4D / RK3576)에서 추론 시 필요한 패키지
+# rknnlite, numpy 는 이미 시스템에 설치되어 있음 (rknnlite 2.3.0).
+# OpenCV 는 카메라 캡처 + 시각화에 필요.
+#
+#   pip3 install -r requirements-board.txt
+#
+opencv-python>=4.5
+numpy>=1.24

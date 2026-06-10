@@ -1,0 +1,11 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# logs / temp
+*.log
+*.tmp
+
+# OS
+.DS_Store
