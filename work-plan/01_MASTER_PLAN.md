@@ -22,7 +22,7 @@
 │ IMX415 ─► ISP 캡처 ─► RKNN NPU(손키포인트) ─► 제스처 엔진   │
 │                                   │                        │
 │   모터 컨트롤러(시리얼) ◄─ 제어로직 ◄┤◄── 스케줄러/자동화     │
-│   (UART/USB-Serial, 속도·위치)     │                        │
+│   (UART, 개/폐/정지·속도고정)      │                        │
 │                                   ▼                        │
 │         앱 서버(FastAPI/Flask) ── REST/WebSocket ── 대시보드 │
 │                                   │                        │
@@ -49,44 +49,51 @@
 - [x] 저지연 웹 MJPEG 스트리밍
 - [x] Colab .pt→ONNX→.rknn 변환 파이프라인
 
-### Phase 1 — 커튼 물리 제어 (v0.2.0)  ☞ `02_HARDWARE_ACTUATION.md`
-- [ ] 모터 컨트롤러 **시리얼 프로토콜 v1 합의**(열림/닫힘/정지/위치%/속도)
-- [ ] 시리얼 드라이버(`control/motor_serial.py`): 송수신·ACK·재연결
-- [ ] 커튼 상태머신(닫힘↔열림, 정지, 위치%, **속도 설정**)
+### Phase M — 커튼 물리 제어 (모터 시리얼)  ⏸ **보류(외부 의존)**  ☞ `02_*`
+> 모터 컨트롤러 측 준비 후 착수. **속도 고정(설정 없음)**, **위치 피드백 미정**.
+> 그 전까지 대시보드(`04_*`)는 제어 UI를 **placeholder**로 먼저 구성.
+- [ ] 시리얼 프로토콜 초안 확정(OPEN/CLOSE/STOP; `$POS`는 위치 피드백 지원 시)
+- [ ] 시리얼 드라이버(`control/motor_serial.py`) + 상태머신(OPEN/CLOSE/STOP)
 - [ ] 끝단/끼임 이벤트 안전 처리
-- [ ] 제스처 → 동작 매핑(열림=open, 닫힘=close, 정지=stop)
-- [ ] **전원 ON 자동 실행(systemd)** ← 필수 (`08_*`)
+- [ ] 제스처/대시보드 placeholder → 실제 동작 매핑
+- [ ] **전원 ON 자동 실행(systemd)** — 이 단계에서 함께 실현 (`08_*`)
 
-### Phase 2 — 제스처/AI 견고화 (v0.3.0)  ☞ `03_GESTURE_AI.md`
+> **실행 순서 메모**: 모터(Phase M)는 외부 의존으로 보류이므로, 활성 작업은
+> 아래 Phase 1→5 를 먼저 진행한다. 대시보드는 모터 제어 UI를 placeholder로 포함.
+
+### Phase 1 — 제스처/AI 견고화 (v0.2.0)  ☞ `03_GESTURE_AI.md`
 - [ ] 정지(브이) 인식 안정화(판정식 개선)
 - [ ] 오작동 방지: 활성화 제스처/홀드 후 명령
-- [ ] 부분 개폐(손가락 개수 → 25/50/75%)
+- [ ] 부분 개폐 인식(손가락 개수 → 25/50/75%) — 표시/이벤트만(실제 구동은 Phase M)
 - [ ] (선택) 사용자 식별 → 개인 프로파일
 
-### Phase 3 — 대시보드 (v0.4.0)  ☞ `04_DASHBOARD.md`
+### Phase 2 — 대시보드 (placeholder 포함) (v0.3.0)  ☞ `04_DASHBOARD.md`
 - [ ] API 서버(FastAPI) + WebSocket 상태
 - [ ] 실시간 영상 + 커튼 상태 표시
+- [ ] **커튼 제어 UI(열기/닫기/정지)는 placeholder**(모터 미연동, Phase M에서 연결)
 - [ ] 사용자 설정(스케줄), 관리자 설정(imgsz/모델 선택)
 - [ ] 모바일 대응(PWA)
 
-### Phase 4 — 스케줄·자동화·개인화 (v0.5.0)  ☞ `05_SCHEDULING_PERSONALIZATION.md`
+### Phase 3 — 스케줄·자동화·개인화 (v0.4.0)  ☞ `05_SCHEDULING_PERSONALIZATION.md`
 - [ ] 시간 기반 개폐 스케줄
 - [ ] 일출/일몰 연동(astral)
 - [ ] 조도/재실 기반 자동
 - [ ] 사용자별 프로파일·이력 학습
 
-### Phase 5 — 원격 접속 (v0.6.0)  ☞ `06_REMOTE_ACCESS.md`
+### Phase 4 — 원격 접속 (v0.5.0)  ☞ `06_REMOTE_ACCESS.md`
 - [ ] 디바이스 등록기 + 고유 주소 발급
 - [ ] 터널/게이트웨이(예: FRP/cloudflared/자체)
 - [ ] 외부에서 대시보드/제어 접근
 
-### Phase 6 — 인증·보안 (v0.7.0)  ☞ `07_SECURITY_AUTH.md`
+### Phase 5 — 인증·보안 (v0.6.0)  ☞ `07_SECURITY_AUTH.md`
 - [ ] 대시보드 로그인/세션
 - [ ] API 토큰·디바이스 인증
 - [ ] HTTPS/전송 암호화
 
-### Phase 7 — 배포·운영·안정화 (v1.0.0)  ☞ `08_DEPLOY_OPS_VERSIONING.md`
-- [ ] systemd 자동실행, 부팅 복구
+### Phase M — 모터 시리얼 연동 + 전원 ON 자동실행  ⏸ 보류(외부 의존)  ☞ `02_*`,`08_*`
+- [ ] (위 Phase M 항목) 컨트롤러 준비 시 진행 + systemd 자동실행 실현
+
+### Phase 6 — 배포·운영·안정화 (v1.0.0)  ☞ `08_DEPLOY_OPS_VERSIONING.md`
 - [ ] 로깅·모니터링·헬스체크
 - [ ] OTA 업데이트
 - [ ] 안정성 테스트 → v1.0.0
@@ -120,7 +127,9 @@ git push origin v0.2.0
 | 엣지 추론 | rknnlite (RK3576 NPU), OpenCV |
 | 앱 서버 | FastAPI + uvicorn (WebSocket 지원) |
 | 프론트 | 경량 HTML/JS → PWA (필요시 Vue/React) |
-| 모터 제어 | 외부 모터 컨트롤러 + **시리얼(pyserial, UART/USB)** |
+| 모터 제어 | 외부 모터 컨트롤러 + **시리얼(pyserial, UART)** · 속도 고정 |
 | 스케줄 | APScheduler, astral(일출/일몰) |
 | 원격 | 등록기 + FRP/cloudflared (Azone_Gateway 패턴 참고) |
-| 저장 | SQLite (설정·스케줄·이력) |
+| 저장 | SQLite (설정·스케줄·프로파일·이력) — 스키마는 `04_*` 데이터모델 절 |
+
+> **조기 결정 필요**: **단일 계정 vs 다중 계정** — SQLite 스키마·인증(`07_*`)·개인화(`05_*`)에 영향.

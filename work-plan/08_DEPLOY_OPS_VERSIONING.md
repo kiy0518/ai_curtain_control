@@ -1,10 +1,11 @@
 # 08. 배포 · 운영 · 버전 관리
 
-> Phase 7 · 목표버전 v1.0.0 · 상태: 일부(git/태그 운용 중)
+> Phase 6 · 목표버전 v1.0.0 · 상태: 일부(git/태그 운용 중)
+> ※ 전원 ON 자동실행은 **Phase M(모터 준비 후)** 에 실현 — 아래 systemd 설정을 그때 적용.
 
-## 배포 / 자동 실행  ★필수 · 조기 적용(v0.2.0)
-> **요구사항: 전원 ON 시 자동 실행** — 보드에 전원만 넣으면 카메라·추론·웹서버가 자동 기동.
-> 다른 Phase에 의존하지 않으므로 가능한 한 빨리 적용.
+## 배포 / 자동 실행  ★요구사항 · 실현 시점: **Phase M(모터 준비 후)**
+> **요구사항: 전원 ON 시 자동 실행** — 보드에 전원만 넣으면 카메라·추론·웹서버(+모터제어)가 자동 기동.
+> 모터 컨트롤러 연동이 끝나는 시점에 함께 적용(사용자 요청). 아래 유닛은 준비된 설정.
 
 - [ ] systemd 서비스(`deploy/ai-curtain.service`): 부팅 시 자동 실행, 비정상 종료 시 자동 재시작
 - [ ] 카메라/NPU/시리얼 준비 대기(의존성·재시도, AE 수렴 고려)
@@ -16,24 +17,26 @@
 ```ini
 [Unit]
 Description=AI Curtain Control
-After=network-online.target
-Wants=network-online.target
+# 로컬(카메라/NPU/제스처)은 네트워크 불필요 → network-online 의존 제거(부팅 지연 방지).
+# 원격(cloudflared 등)은 별도 유닛에서 network-online 의존.
 
 [Service]
 Type=simple
 User=radxa
+SupplementaryGroups=dialout        # 시리얼(/dev/ttyS*) 접근 (radxa는 기본 미포함)
 WorkingDirectory=/home/radxa/Documents/ai_curtain_control
-# 카메라 ISP/NPU 준비 대기(여유)
-ExecStartPre=/bin/sleep 8
 ExecStart=/usr/bin/python3 serve.py --model models/hand_pose_640.rknn --imgsz 640 --conf 0.3
 Restart=always
 RestartSec=3
-# 환경설정(config.env) 사용 시
+StartLimitIntervalSec=60
+StartLimitBurst=5                  # 의존성 영구 실패 시 무한 크래시루프 방지
 EnvironmentFile=-/home/radxa/Documents/ai_curtain_control/config.env
 
 [Install]
 WantedBy=multi-user.target
 ```
+> 카메라 ISP/NPU/시리얼 준비는 고정 `sleep`이 아니라 **앱이 재시도(없으면 대기)** 로 처리(브리틀한 타이밍 의존 회피). AE 수렴은 스트림이 자연 처리.
+> 시리얼 포트가 udev `.device` 유닛으로 잡히면 `After=`/`BindsTo=dev-ttyS3.device` 추가 검토.
 ```bash
 sudo cp deploy/ai-curtain.service /etc/systemd/system/
 sudo systemctl daemon-reload
@@ -59,9 +62,9 @@ journalctl -u ai-curtain -f                # 로그
 - 기능 개발: `feat/<phase>-<name>` 브랜치 → `main` 머지.
 - 예:
   ```bash
-  git switch -c feat/phase1-motor
+  git switch -c feat/phase1-gesture     # 예: Phase 1(제스처) → v0.2.0
   # ...작업/커밋...
-  git switch main && git merge --no-ff feat/phase1-motor
+  git switch main && git merge --no-ff feat/phase1-gesture
   git tag -a v0.2.0 -m "v0.2.0 ... 시각/진행/승계 ..." && git push origin main v0.2.0
   ```
 
