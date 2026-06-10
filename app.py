@@ -29,6 +29,8 @@ from constants import GESTURE_KR                   # noqa: E402
 import store                                        # noqa: E402
 from scheduler import SchedulerThread              # noqa: E402
 from remote import RemoteManager                   # noqa: E402
+import auth                                         # noqa: E402
+from http.cookies import SimpleCookie              # noqa: E402
 
 
 # --- small system-info helper (no psutil dependency) -----------------------
@@ -129,8 +131,12 @@ DASHBOARD_HTML = """<!doctype html>
  .grid2{display:flex;gap:12px} .grid2>*{flex:1}
 </style></head>
 <body>
-<div class="appbar"><span class="t">🪟 AI 커튼 제어</span><span id="conn" class="chip off">연결 확인…</span></div>
+<div class="appbar"><span class="t">🪟 AI 커튼 제어</span>
+  <span><span id="conn" class="chip off">연결 확인…</span>
+  <button class="chip" style="border:0;cursor:pointer;margin-left:6px" onclick="logout()">로그아웃</button></span></div>
 <main>
+ <div id="pwwarn" class="card" style="display:none;background:#4a2024;color:#F2B8B5">
+   ⚠ 기본 비밀번호(admin) 사용 중입니다. 아래 관리자 설정에서 변경하세요.</div>
  <div class="card" style="padding:8px"><img id="cam" src="/stream.mjpg" alt="live"></div>
 
  <div class="card">
@@ -197,6 +203,11 @@ DASHBOARD_HTML = """<!doctype html>
      <input type="number" id="lon" step="0.0001" placeholder="경도">
    </div>
    <div style="margin-top:12px"><button class="btn tonal" onclick="saveLoc()">위치 저장</button></div>
+   <label>비밀번호 변경</label>
+   <input type="password" id="pw_old" placeholder="현재 비밀번호">
+   <input type="password" id="pw_new" placeholder="새 비밀번호(4자 이상)" style="margin-top:8px">
+   <div class="note" id="pwmsg"></div>
+   <div style="margin-top:10px"><button class="btn" onclick="changePw()">비밀번호 변경</button></div>
  </details>
 </main>
 <script>
@@ -221,6 +232,11 @@ async function setGest(){ fetch('/api/settings',{method:'POST',body:JSON.stringi
 async function saveLoc(){ await fetch('/api/settings',{method:'POST',body:JSON.stringify({lat:parseFloat($('lat').value),lon:parseFloat($('lon').value)})}); }
 async function setRemote(){ const en=$('rem').checked; $('remurl').textContent=en?'터널 생성중… (몇 초)':'';
   await fetch('/api/remote',{method:'POST',body:JSON.stringify({enable:en})}); }
+async function logout(){ await fetch('/api/logout',{method:'POST'}); location.href='/login'; }
+async function changePw(){
+  const r=await fetch('/api/password',{method:'POST',body:JSON.stringify({old:$('pw_old').value,new:$('pw_new').value})});
+  const d=await r.json(); $('pwmsg').textContent=d.ok?'변경됨 — 다시 로그인하세요':(d.error||'실패');
+  if(d.ok){setTimeout(()=>location.href='/login',1200);} }
 
 async function addSched(){
   const kind=$('s_kind').value;
@@ -253,8 +269,11 @@ function renderSched(list){
 
 async function poll(){
  try{
-   const s=await (await fetch('/api/state')).json();
+   const r=await fetch('/api/state');
+   if(r.status===401){location.href='/login';return;}
+   const s=await r.json();
    $('conn').textContent='온라인'; $('conn').className='chip on';
+   $('pwwarn').style.display=(s.auth&&s.auth.default_pw)?'block':'none';
    $('curtain').textContent=stMap[s.curtain.state]||s.curtain.state;
    $('motornote').style.display=s.curtain.motor_connected?'none':'block';
    $('gesture').textContent=s.engine.gesture?(KR[s.engine.gesture]||s.engine.gesture):'—';
@@ -285,6 +304,37 @@ setInterval(poll,1000); poll();
 if('serviceWorker' in navigator){navigator.serviceWorker.register('/sw.js').catch(()=>{});}
 </script>
 </body></html>
+"""
+
+LOGIN_HTML = """<!doctype html>
+<html lang="ko"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#141218"><title>로그인 · AI 커튼</title>
+<style>
+ body{margin:0;height:100vh;display:flex;align-items:center;justify-content:center;
+   background:#141218;color:#E6E1E9;font-family:Roboto,system-ui,"Noto Sans KR",sans-serif}
+ .box{background:#211F26;padding:32px 28px;border-radius:28px;width:300px;text-align:center}
+ h1{font-size:20px;margin:0 0 20px}
+ input{width:100%;padding:14px;border-radius:12px;border:1px solid #49454F;
+   background:#2B2930;color:#E6E1E9;font-size:16px;margin-bottom:14px}
+ button{width:100%;padding:14px;border:0;border-radius:100px;background:#D0BCFF;
+   color:#381E72;font-weight:600;font-size:15px;cursor:pointer}
+ .err{color:#F2B8B5;font-size:13px;min-height:18px;margin-bottom:8px}
+</style></head>
+<body><div class="box">
+ <h1>🪟 AI 커튼 제어</h1>
+ <div class="err" id="err"></div>
+ <input type="password" id="pw" placeholder="비밀번호" autofocus
+   onkeydown="if(event.key==='Enter')go()">
+ <button onclick="go()">로그인</button>
+</div>
+<script>
+async function go(){
+ const r=await fetch('/api/login',{method:'POST',body:JSON.stringify({password:document.getElementById('pw').value})});
+ const d=await r.json();
+ if(d.ok){location.href='/';} else {document.getElementById('err').textContent=d.error||'로그인 실패';}
+}
+</script></body></html>
 """
 
 MANIFEST = json.dumps({
@@ -323,7 +373,30 @@ def make_handler(proc, engine, controller, remote):
             except Exception:
                 return {}
 
+        def _token(self):
+            c = SimpleCookie(self.headers.get("Cookie", ""))
+            return c["session"].value if "session" in c else None
+
+        def _authed(self):
+            return auth.valid(self._token())
+
         def do_GET(self):
+            # public (no auth): login page, PWA assets
+            if self.path in ("/login", "/login.html"):
+                self._send(200, "text/html; charset=utf-8", LOGIN_HTML)
+                return
+            if self.path == "/manifest.json":
+                self._send(200, "application/manifest+json", MANIFEST)
+                return
+            if self.path == "/sw.js":
+                self._send(200, "application/javascript", SW_JS)
+                return
+            if not self._authed():
+                if self.path in ("/", "/index.html"):
+                    self._send(200, "text/html; charset=utf-8", LOGIN_HTML)
+                else:
+                    self.send_error(401)
+                return
             if self.path in ("/", "/index.html"):
                 self._send(200, "text/html; charset=utf-8", DASHBOARD_HTML)
             elif self.path == "/manifest.json":
@@ -340,6 +413,7 @@ def make_handler(proc, engine, controller, remote):
                     "location": {"lat": store.get_setting("lat"),
                                  "lon": store.get_setting("lon")},
                     "remote": remote.status(),
+                    "auth": {"default_pw": auth.is_default()},
                 })
             elif self.path == "/snapshot.jpg":
                 jpeg = proc.jpeg_slot.get()
@@ -368,7 +442,33 @@ def make_handler(proc, engine, controller, remote):
 
         def do_POST(self):
             data = self._read_json()
-            if self.path == "/api/control":
+            # public: login
+            if self.path == "/api/login":
+                tok, err = auth.login(str(data.get("password", "")))
+                if tok:
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json")
+                    self.send_header("Set-Cookie",
+                                     f"session={tok}; HttpOnly; Path=/; SameSite=Lax; Max-Age=604800")
+                    body = json.dumps({"ok": True}).encode()
+                    self.send_header("Content-Length", str(len(body)))
+                    self.end_headers()
+                    self.wfile.write(body)
+                else:
+                    self._json({"ok": False, "error": err}, 401)
+                return
+            # everything else requires a valid session
+            if not self._authed():
+                self._json({"ok": False, "error": "unauthorized"}, 401)
+                return
+            if self.path == "/api/logout":
+                auth.logout(self._token())
+                self._json({"ok": True})
+            elif self.path == "/api/password":
+                ok, err = auth.change_password(str(data.get("old", "")),
+                                               str(data.get("new", "")))
+                self._json({"ok": ok, "error": err}, 200 if ok else 400)
+            elif self.path == "/api/control":
                 ok = controller.command(str(data.get("action", "")), "dashboard")
                 self._json({"ok": ok, "curtain": controller.snapshot()})
             elif self.path == "/api/model":
@@ -425,6 +525,9 @@ def parse_args():
 def main():
     args = parse_args()
     store.init()
+    auth.init()
+    if auth.is_default():
+        print("  ⚠ 기본 비밀번호 'admin' 사용 중 — 대시보드에서 변경하세요.")
     controller = CurtainController()
     engine = PoseEngine(args.profile, conf=args.conf, controller=controller)
     scheduler = SchedulerThread(controller)
