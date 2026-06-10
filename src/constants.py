@@ -52,7 +52,10 @@ BODY_SKELETON = [
 GESTURE_KR = {"OPEN": "열림", "CLOSE": "닫힘", "STOP": "정지"}
 
 # --- Model I/O defaults ----------------------------------------------------
-INPUT_SIZE = 224                # default; each profile sets its own imgsz
+INPUT_SIZE = 640                # fallback default only; the active size comes
+                                # from the model profile (profiles.py -> imgsz).
+                                # hand_near/body_far both use 640. (hand_pose.rknn
+                                # at 224 still exists but profiles point to _640.)
 NUM_CLASSES = 1                 # 1 class (hand) or (person) — both single-class
 REG_MAX = 16                    # DFL bins per box side
 STRIDES = (8, 16, 32)           # detection branch strides

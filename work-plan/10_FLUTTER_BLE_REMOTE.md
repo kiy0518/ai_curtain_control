@@ -1,6 +1,20 @@
 # 10. 유저 리모컨 앱 (Flutter + Bluetooth BLE)
 
-> Phase 7 · 목표버전 v1.1.0 · 상태: 미착수
+> Phase 7 · 목표버전 v1.1.0 · 상태: **진행중** (보드 BLE 서버 PoC 동작 / Flutter 스캐폴드 완료)
+
+### 확정된 결정 (사용자)
+- 앱 코드 위치: **이 저장소 `app_flutter/`**
+- BLE 서버 라이브러리: **`bless`** (설치·광고 검증됨)
+- 인증: **BLE 본딩(페어링)만**
+- 플랫폼: **Android APK 우선** (iOS 추후)
+
+### 진행 (이번)
+- [x] 보드 블루투스 확인(hci0 USB AIC, BlueZ 1.22) + `bless` 설치
+- [x] `src/ble_server.py` — Curtain 서비스(Command write / Status notify) + `CurtainController` 연동, 광고 동작 확인("AI-Curtain")
+- [x] `app.py --ble`(또는 `CURTAIN_BLE=1`) 로 대시보드와 같은 프로세스에서 기동
+- [x] Flutter 스캐폴드 `app_flutter/`(pubspec, lib/main.dart, 권한, README)
+- [ ] 실제 폰 연결 테스트(nRF Connect/앱) + 본딩
+- [ ] APK 빌드(PC) · 자동재연결 · 다중 클라이언트 정책
 
 손짓/대시보드 외에, **휴대폰 Flutter 앱**으로 커튼을 직접 제어하는 리모컨. 근접 제어는
 **BLE(Bluetooth Low Energy)** 로 연결한다. (웹 대시보드/cloudflared 는 원격·관리용,

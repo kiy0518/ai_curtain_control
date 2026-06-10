@@ -1,0 +1,14 @@
+<!-- AndroidManifest.xml 의 <manifest> 안(<application> 위)에 추가할 BLE 권한.
+     flutter create . 후 android/app/src/main/AndroidManifest.xml 에 붙여넣으세요. -->
+
+<!-- Android 12+ (API 31+) -->
+<uses-permission android:name="android.permission.BLUETOOTH_SCAN"
+    android:usesPermissionFlags="neverForLocation" />
+<uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+
+<!-- Android 11 이하 -->
+<uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
+<uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
+<uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" android:maxSdkVersion="30" />
+
+<uses-feature android:name="android.hardware.bluetooth_le" android:required="true" />

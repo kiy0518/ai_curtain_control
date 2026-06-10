@@ -554,6 +554,9 @@ def parse_args():
     p.add_argument("--remote", action="store_true",
                    default=_env("CURTAIN_REMOTE", "") == "1",
                    help="start a Cloudflare quick tunnel (public unique URL) at launch")
+    p.add_argument("--ble", action="store_true",
+                   default=_env("CURTAIN_BLE", "") == "1",
+                   help="start the BLE remote peripheral (Flutter app control)")
     return p.parse_args()
 
 
@@ -572,6 +575,15 @@ def main():
     remote = RemoteManager(args.port)
     if args.remote:
         remote.start()
+    ble = None
+    if args.ble:
+        try:
+            from ble_server import BleServerThread
+            ble = BleServerThread(controller)
+            ble.start()
+            log.info("BLE 리모컨 주변장치 시작 (AI-Curtain)")
+        except Exception as e:
+            log.warning("BLE 시작 실패: %s", e)
 
     pipeline = isp_gst_pipeline(width=args.width, height=args.height, fps=args.fps)
     cam = CameraThread(pipeline)
@@ -589,6 +601,8 @@ def main():
     except KeyboardInterrupt:
         log.info("shutting down")
     finally:
+        if ble:
+            ble.stop()
         remote.stop(); scheduler.stop(); proc.stop(); cam.stop()
         server.shutdown(); engine.release()
 
