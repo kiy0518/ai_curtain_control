@@ -1,0 +1,24 @@
+# Cloudflare named tunnel (stable unique address) — Phase 4 / deferred autostart.
+# Use AFTER creating a named tunnel:
+#   cloudflared tunnel login
+#   cloudflared tunnel create ai-curtain
+#   cloudflared tunnel route dns ai-curtain curtain.<your-domain>
+#   # creds saved at ~/.cloudflared/<UUID>.json
+# Then install this unit (own unit, separate from the app, has its own restart):
+#   sudo cp deploy/cloudflared.service /etc/systemd/system/
+#   sudo systemctl enable --now cloudflared
+#
+# For the no-account quick tunnel just run: python3 app.py --remote
+[Unit]
+Description=Cloudflare Tunnel (AI Curtain)
+After=network-online.target ai-curtain.service
+Wants=network-online.target
+
+[Service]
+User=radxa
+ExecStart=/home/radxa/.local/bin/cloudflared tunnel --no-autoupdate run ai-curtain
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

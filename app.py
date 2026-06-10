@@ -28,6 +28,7 @@ from controller import CurtainController           # noqa: E402
 from constants import GESTURE_KR                   # noqa: E402
 import store                                        # noqa: E402
 from scheduler import SchedulerThread              # noqa: E402
+from remote import RemoteManager                   # noqa: E402
 
 
 # --- small system-info helper (no psutil dependency) -----------------------
@@ -165,6 +166,14 @@ DASHBOARD_HTML = """<!doctype html>
  </div>
 
  <div class="card">
+   <h3>원격 접속 (고유 주소)</h3>
+   <label style="display:flex;align-items:center;gap:12px;margin:0">원격 터널 사용
+     <span class="switch"><input type="checkbox" id="rem" onchange="setRemote()"><span class="tr"></span><span class="kn"></span></span>
+   </label>
+   <div id="remurl" class="note" style="margin-top:10px;word-break:break-all"></div>
+ </div>
+
+ <div class="card">
    <h3>상태</h3>
    <div class="kv"><span>현재 제스처</span><b id="gesture">—</b></div>
    <div class="kv"><span>모델 / 입력</span><b id="model">—</b></div>
@@ -210,6 +219,8 @@ async function setConf(){ const v=parseFloat($('conf').value); $('confv').textCo
   fetch('/api/settings',{method:'POST',body:JSON.stringify({conf:v})}); }
 async function setGest(){ fetch('/api/settings',{method:'POST',body:JSON.stringify({gesture_enabled:$('gest').checked})}); }
 async function saveLoc(){ await fetch('/api/settings',{method:'POST',body:JSON.stringify({lat:parseFloat($('lat').value),lon:parseFloat($('lon').value)})}); }
+async function setRemote(){ const en=$('rem').checked; $('remurl').textContent=en?'터널 생성중… (몇 초)':'';
+  await fetch('/api/remote',{method:'POST',body:JSON.stringify({enable:en})}); }
 
 async function addSched(){
   const kind=$('s_kind').value;
@@ -252,6 +263,12 @@ async function poll(){
    $('count').textContent=s.engine.count;
    $('sys').textContent=s.system.load+' / '+s.system.mem_used_mb+'·'+s.system.mem_total_mb+'MB / '+(s.system.temp_c??'?')+'°C';
    renderSched(s.schedules||[]);
+   if(s.remote){
+     if(!$('rem').matches(':focus')) $('rem').checked=s.remote.active;
+     $('remurl').innerHTML = s.remote.url
+       ? '🔗 <a href="'+s.remote.url+'" target="_blank" style="color:var(--primary)">'+s.remote.url+'</a>'
+       : (s.remote.active?'터널 생성중…':(s.remote.error||(s.remote.available?'꺼짐':'cloudflared 미설치')));
+   }
    if(!profilesLoaded){
      const sel=$('profile'); sel.innerHTML='';
      s.profiles.forEach(p=>{const o=document.createElement('option');o.value=p.name;o.textContent=p.name+' ('+p.num_keypoints+'kp '+p.imgsz+')';sel.appendChild(o);});
@@ -278,7 +295,7 @@ MANIFEST = json.dumps({
 SW_JS = "self.addEventListener('fetch',()=>{});"   # minimal (enables install)
 
 
-def make_handler(proc, engine, controller):
+def make_handler(proc, engine, controller, remote):
     class H(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
 
@@ -322,6 +339,7 @@ def make_handler(proc, engine, controller):
                     "schedules": store.list_schedules(),
                     "location": {"lat": store.get_setting("lat"),
                                  "lon": store.get_setting("lon")},
+                    "remote": remote.status(),
                 })
             elif self.path == "/snapshot.jpg":
                 jpeg = proc.jpeg_slot.get()
@@ -378,6 +396,12 @@ def make_handler(proc, engine, controller):
             elif self.path == "/api/schedules/toggle":
                 store.set_enabled(int(data.get("id")), bool(data.get("enabled")))
                 self._json({"ok": True, "schedules": store.list_schedules()})
+            elif self.path == "/api/remote":
+                if data.get("enable"):
+                    remote.start()
+                else:
+                    remote.stop()
+                self._json({"ok": True, "remote": remote.status()})
             else:
                 self.send_error(404)
     return H
@@ -393,6 +417,8 @@ def parse_args():
     p.add_argument("--port", type=int, default=8080)
     p.add_argument("--host", default="0.0.0.0")
     p.add_argument("--quality", type=int, default=75)
+    p.add_argument("--remote", action="store_true",
+                   help="start a Cloudflare quick tunnel (public unique URL) at launch")
     return p.parse_args()
 
 
@@ -403,6 +429,9 @@ def main():
     engine = PoseEngine(args.profile, conf=args.conf, controller=controller)
     scheduler = SchedulerThread(controller)
     scheduler.start()
+    remote = RemoteManager(args.port)
+    if args.remote:
+        remote.start()
 
     pipeline = isp_gst_pipeline(width=args.width, height=args.height, fps=args.fps)
     cam = CameraThread(pipeline)
@@ -412,14 +441,15 @@ def main():
     proc.start()
 
     server = ThreadingHTTPServer((args.host, args.port),
-                                 make_handler(proc, engine, controller))
+                                 make_handler(proc, engine, controller, remote))
     print(f"\n  ▶ 대시보드 →  http://<board-ip>:{args.port}   (Ctrl+C 종료)\n")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         print("\n종료 중...")
     finally:
-        scheduler.stop(); proc.stop(); cam.stop(); server.shutdown(); engine.release()
+        remote.stop(); scheduler.stop(); proc.stop(); cam.stop()
+        server.shutdown(); engine.release()
 
 
 if __name__ == "__main__":

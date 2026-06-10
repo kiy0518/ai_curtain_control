@@ -1,7 +1,20 @@
 # 06. 원격 접속 · 고유 주소 생성
 
-> Phase 4 · 목표버전 v0.5.0 · 상태: 미착수
+> Phase 4 · 목표버전 v0.5.0 · 상태: **PoC 구현됨**(cloudflared quick tunnel)
 > 참고: `kiy0518/Azone_Gateway` (디바이스 등록기 + 게이트웨이 패턴)
+
+## ✅ 구현 (quick tunnel, 무계정)
+- `src/remote.py` `RemoteManager`: cloudflared quick tunnel 실행/중지 + 공개 URL 파싱.
+- `app.py --remote` 또는 대시보드 **원격 접속 토글** → `https://<random>.trycloudflare.com` 발급.
+- 대시보드에 URL 표시(링크). 외부 접근 검증 완료(HTTP 200).
+- ⚠️ quick tunnel 은 **임시·랜덤 주소**이고 DNS 전파에 수십 초~수 분 걸릴 수 있음.
+  **고정 "고유 주소"** 는 아래 named tunnel 필요.
+- 참고(검증 중 발견): 일부 **공유기 DNS**가 `*.trycloudflare.com` 을 못 잡을 수 있음(보드 자체에서 접속 시).
+  전역 DNS(1.1.1.1)에는 정상 등록되어 **외부 기기(폰/PC)는 접속됨** — 종단 검증 HTTP 200 확인.
+
+### 고정 주소(named tunnel) — 다음 단계
+- Cloudflare 계정 + 도메인 → `cloudflared tunnel create` + DNS 라우트 → `https://curtain.내도메인`.
+- 자격증명(`~/.cloudflared/*.json`)을 보드에 두고 systemd 로 상시 실행.
 
 ## 목표
 집 밖에서도 대시보드 접속/제어. 각 디바이스에 **고유 주소**를 발급해 NAT/방화벽 뒤에서도 도달 가능.
