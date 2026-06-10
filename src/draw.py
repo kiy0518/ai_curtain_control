@@ -4,8 +4,7 @@ import cv2
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
-from constants import HAND_SKELETON, FINGERTIPS
-from gesture import GESTURE_KR
+from constants import HAND_SKELETON, FINGERTIPS, GESTURE_KR
 
 _KP_CONF_THRES = 0.3
 
@@ -48,32 +47,27 @@ def draw_gesture_banner(frame, label):
     return frame
 
 
-def draw_detections(frame, detections):
-    """Render detections in place and return the frame.
-
-    Each detection follows the schema produced by ``postprocess.decode``.
-    """
+def draw_detections(frame, detections, skeleton=HAND_SKELETON,
+                    highlight=FINGERTIPS, label="hand"):
+    """Render detections in place. ``skeleton``/``highlight`` come from the
+    active model profile (hand vs body)."""
     for det in detections:
         x1, y1, x2, y2 = det["box"]
         cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 200, 0), 2)
-        cv2.putText(frame, f"hand {det['score']:.2f}", (x1, max(0, y1 - 6)),
+        cv2.putText(frame, f"{label} {det['score']:.2f}", (x1, max(0, y1 - 6)),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 200, 0), 1, cv2.LINE_AA)
 
         kpts = det["keypoints"]
-
-        # bones
-        for a, b in HAND_SKELETON:
+        for a, b in skeleton:
             if kpts[a, 2] < _KP_CONF_THRES or kpts[b, 2] < _KP_CONF_THRES:
                 continue
-            pa = (int(kpts[a, 0]), int(kpts[a, 1]))
-            pb = (int(kpts[b, 0]), int(kpts[b, 1]))
-            cv2.line(frame, pa, pb, (255, 160, 0), 2, cv2.LINE_AA)
+            cv2.line(frame, (int(kpts[a, 0]), int(kpts[a, 1])),
+                     (int(kpts[b, 0]), int(kpts[b, 1])), (255, 160, 0), 2, cv2.LINE_AA)
 
-        # joints (fingertips highlighted)
         for idx in range(kpts.shape[0]):
             if kpts[idx, 2] < _KP_CONF_THRES:
                 continue
-            color = (0, 0, 255) if idx in FINGERTIPS else (0, 255, 255)
+            color = (0, 0, 255) if idx in highlight else (0, 255, 255)
             cv2.circle(frame, (int(kpts[idx, 0]), int(kpts[idx, 1])), 3, color, -1)
 
     return frame

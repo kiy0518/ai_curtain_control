@@ -47,10 +47,45 @@ python convert_rknn.py ultralytics_yolov8/best.onnx --target rk3576 --out hand_p
 ## (선택) 직접 학습
 정확도를 더 높이려면 [`train_hand.py`](train_hand.py) 로 재학습 후 그 `best.pt`를 위와 동일하게 export/변환하세요.
 
+## 전신 포즈(원거리용) 변환 — body_far 프로파일
+원거리 인식용 **전신 17키포인트** 모델. 손 변환과 **동일 경로**, 모델 파일·imgsz만 다름.
+COCO 사전학습 `yolov8n-pose.pt`(전신 17점) 사용 — 자동 다운로드됨.
+
+**셀 1 (export, imgsz=640 권장)**:
+```python
+%cd /content
+!pip install -q ultralytics onnx onnxslim
+from ultralytics import YOLO
+YOLO('yolov8n-pose.pt').export(format='onnx', opset=12, simplify=True, imgsz=640)
+# 생성물: yolov8n-pose.onnx  (출력 4+1+51=56채널, 8400 anchors)
+```
+**셀 2-A → 런타임 재시작 → 2-B**: 손 변환과 동일 핀(onnx==1.18.0 / numpy==1.26.4 / scipy==1.13.1 / rknn-toolkit2==2.3.2),
+입력 ONNX만 `yolov8n-pose.onnx`, 출력만 `body_pose_640.rknn` 로:
+```python
+# 2-B (재시작 후)
+import builtins, sys, os
+builtins.exit = sys.exit
+from rknn.api import RKNN
+r = RKNN(verbose=False)
+r.config(mean_values=[[0,0,0]], std_values=[[255,255,255]], target_platform='rk3576')
+assert r.load_onnx(model='/content/yolov8n-pose.onnx') == 0
+assert r.build(do_quantization=False) == 0
+assert r.export_rknn('/content/body_pose_640.rknn') == 0
+r.release(); print('완료:', os.path.getsize('/content/body_pose_640.rknn'),'bytes')
+from google.colab import files; files.download('/content/body_pose_640.rknn')
+```
+
 ## 보드로 복사
 ```bash
-scp hand_pose.rknn radxa@192.168.10.196:~/Documents/ai_curtain_control/models/
+scp hand_pose.rknn      radxa@192.168.10.196:~/Documents/ai_curtain_control/models/
+scp body_pose_640.rknn  radxa@192.168.10.196:~/Documents/ai_curtain_control/models/
 ```
+보드에서 프로파일 전환:
+```bash
+python3 serve.py --profile hand_near    # 근거리 손 (기본)
+python3 serve.py --profile body_far     # 원거리 전신 팔
+```
+> 추후 대시보드(Phase 2)에서 **런타임 모델 전환**(서버 재시작 없이)으로 선택.
 
 ## 참고: rknnlite 버전 정합
 보드 런타임은 `rknnlite 2.3.0` / `librknnrt.so` 입니다. 변환 시 `rknn-toolkit2`도 **2.3.x** 로 맞추세요(주요 버전이 다르면 로드 실패 가능).

@@ -1,30 +1,24 @@
-"""Decode the split-branch YOLOv8-pose RKNN output into hand detections.
+"""Decode YOLOv8-pose RKNN output into detections (hand or body).
 
-This matches the Rockchip ``rknn_model_zoo`` ``yolov8_pose`` export, where the
-model's post-process (DFL + box/grid decode) is stripped out and run here on
-CPU for better NPU quantisation and speed.
+Parameterised by ``num_keypoints``/``num_classes`` so the same code serves the
+21-keypoint hand model and the 17-keypoint body model. Handles BOTH export
+formats automatically:
 
-Model outputs (order-independent — we sort them by shape):
-  * 3 detection branches, each ``(1, DET_CHANNELS, H, W)`` for strides 8/16/32
-        channels = 4*REG_MAX box-DFL logits  +  NUM_CLASSES class logits
-  * 1 keypoint branch ``(1, KPT_CHANNELS, total_anchors)``
-        channels = NUM_KEYPOINTS * 3  (x, y in letterbox px; visibility logit)
+* **split-branch** (Rockchip rknn_model_zoo / airockchip): 3 detection branches
+  ``(1, 4*REG_MAX+nc, H, W)`` + 1 keypoint branch ``(1, nkpt*3, anchors)``,
+  with DFL/box decode done here on CPU.
+* **standard** (plain ultralytics ONNX): a single decoded tensor
+  ``(1, 4+nc+nkpt*3, anchors)``.
 
-``decode`` returns detections in original-frame coordinates, matching the
-schema ``draw.draw_detections`` expects:
-    {"box": (x1,y1,x2,y2) int, "score": float, "keypoints": (21,3) float}
+Returns detections in original-frame coords:
+    {"box": (x1,y1,x2,y2) int, "score": float, "keypoints": (K,3) float}
 """
 
 import numpy as np
 
-from constants import (NUM_KEYPOINTS, NUM_CLASSES, REG_MAX, INPUT_SIZE,
-                       DET_CHANNELS, KPT_CHANNELS)
+from constants import REG_MAX, NUM_KEYPOINTS, NUM_CLASSES
 
 _BINS = np.arange(REG_MAX, dtype=np.float32)
-
-# Standard (decoded) ultralytics pose output channel count:
-#   4 (xywh) + NUM_CLASSES + NUM_KEYPOINTS*3
-STD_CHANNELS = 4 + NUM_CLASSES + KPT_CHANNELS
 
 
 def _sigmoid(x):
@@ -37,7 +31,6 @@ def _softmax(x, axis):
 
 
 def _nms(boxes, scores, iou_thres):
-    """NumPy NMS on xyxy boxes; returns kept indices."""
     if len(boxes) == 0:
         return []
     x1, y1, x2, y2 = boxes[:, 0], boxes[:, 1], boxes[:, 2], boxes[:, 3]
@@ -59,35 +52,28 @@ def _nms(boxes, scores, iou_thres):
     return keep
 
 
-def _split_outputs(outputs):
-    """Sort raw model outputs into (detection branches, keypoint branch)."""
-    det, kpt = [], None
-    for o in outputs:
-        o = np.asarray(o)
-        ch = o.shape[1]
-        if ch == KPT_CHANNELS:
-            kpt = o.reshape(1, KPT_CHANNELS, -1)
-        elif ch == DET_CHANNELS:
-            det.append(o)
-        # any other branch (e.g. score-sum) is ignored
-    # stride 8 first (largest feature map) -> matches keypoint anchor order
-    det.sort(key=lambda o: o.shape[2] * o.shape[3], reverse=True)
-    return det, kpt
+def _map_back(box, kp, letterbox):
+    """Map letterbox-space box/keypoints back to original frame coords."""
+    ratio, pad_x, pad_y = letterbox
+    box = box.copy()
+    box[[0, 2]] = (box[[0, 2]] - pad_x) / ratio
+    box[[1, 3]] = (box[[1, 3]] - pad_y) / ratio
+    kp = kp.copy()
+    kp[:, 0] = (kp[:, 0] - pad_x) / ratio
+    kp[:, 1] = (kp[:, 1] - pad_y) / ratio
+    return box.astype(np.int32), kp
 
 
-def _decode_standard(out, letterbox, conf_thres, iou_thres):
-    """Decode a single already-decoded output ``(1, 68, N)`` / ``(1, N, 68)``.
-
-    This is what the *standard* Ultralytics ONNX export produces (box xywh +
-    class conf + keypoints, all decoded in-graph). Used as a fallback when the
-    model wasn't exported with the airockchip split head.
-    """
+def _decode_standard(out, letterbox, num_keypoints, num_classes,
+                     conf_thres, iou_thres):
+    std_ch = 4 + num_classes + num_keypoints * 3
     pred = np.squeeze(np.asarray(out))
-    if pred.shape[0] != STD_CHANNELS:        # ensure channels-first (68, N)
+    if pred.shape[0] != std_ch:
         pred = pred.transpose()
-    pred = pred.transpose()                   # -> (N, 68), one row per anchor
+    pred = pred.transpose()                       # (N, std_ch)
 
-    scores = pred[:, 4]
+    # class score = max over class channels (single class -> channel 4)
+    scores = pred[:, 4:4 + num_classes].max(axis=1)
     mask = scores >= conf_thres
     pred, scores = pred[mask], scores[mask]
     if pred.shape[0] == 0:
@@ -95,90 +81,79 @@ def _decode_standard(out, letterbox, conf_thres, iou_thres):
 
     cx, cy, w, h = pred[:, 0], pred[:, 1], pred[:, 2], pred[:, 3]
     boxes = np.stack([cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2], axis=1)
-    kpts = pred[:, 5:].reshape(-1, NUM_KEYPOINTS, 3)
+    kpts = pred[:, 4 + num_classes:].reshape(-1, num_keypoints, 3)
 
-    ratio, pad_x, pad_y = letterbox
-    detections = []
+    dets = []
     for i in _nms(boxes, scores, iou_thres):
-        box = boxes[i].copy()
-        box[[0, 2]] = (box[[0, 2]] - pad_x) / ratio
-        box[[1, 3]] = (box[[1, 3]] - pad_y) / ratio
-        kp = kpts[i].copy()
-        kp[:, 0] = (kp[:, 0] - pad_x) / ratio
-        kp[:, 1] = (kp[:, 1] - pad_y) / ratio
-        detections.append({"box": box.astype(np.int32),
-                           "score": float(scores[i]), "keypoints": kp})
-    return detections
+        box, kp = _map_back(boxes[i], kpts[i], letterbox)
+        dets.append({"box": box, "score": float(scores[i]), "keypoints": kp})
+    return dets
 
 
-def decode(outputs, letterbox, conf_thres=0.5, iou_thres=0.45):
-    # Auto-detect output format: a single (1,68,N)/(1,N,68) tensor means the
-    # model was exported with the standard (decoded) head; otherwise it's the
-    # airockchip split-branch head (3 det + 1 kpt).
-    arrs = [np.asarray(o) for o in outputs]
-    for o in arrs:
-        sq = np.squeeze(o)
-        if sq.ndim == 2 and STD_CHANNELS in sq.shape:
-            return _decode_standard(o, letterbox, conf_thres, iou_thres)
+def _decode_split(outputs, letterbox, num_keypoints, num_classes,
+                  conf_thres, iou_thres):
+    det_ch = 4 * REG_MAX + num_classes
+    kpt_ch = num_keypoints * 3
 
-    ratio, pad_x, pad_y = letterbox
-    det_branches, kpt_out = _split_outputs(outputs)
+    det, kpt_out = [], None
+    for o in outputs:
+        o = np.asarray(o)
+        if o.shape[1] == kpt_ch:
+            kpt_out = o.reshape(1, kpt_ch, -1)
+        elif o.shape[1] == det_ch:
+            det.append(o)
+    det.sort(key=lambda o: o.shape[2] * o.shape[3], reverse=True)
+    if not det:
+        return []
+    imgsz = det[0].shape[2] * 8                   # stride-8 branch -> imgsz
 
     boxes_all, scores_all, kpts_all = [], [], []
     anchor_offset = 0
-    for branch in det_branches:
+    for branch in det:
         _, _, H, W = branch.shape
-        stride = INPUT_SIZE // H
-        feat = branch.reshape(DET_CHANNELS, H * W)
-        box_dist = feat[:4 * REG_MAX, :]                 # (64, N)
-        cls = _sigmoid(feat[4 * REG_MAX:, :])            # (nc, N)
-        cls_score = cls.max(axis=0)
+        stride = imgsz // H
+        feat = branch.reshape(det_ch, H * W)
+        box_dist = feat[:4 * REG_MAX, :]
+        cls_score = _sigmoid(feat[4 * REG_MAX:, :]).max(axis=0)
         keep = np.where(cls_score >= conf_thres)[0]
-
         if keep.size:
-            # DFL: softmax over the 16 bins of each of the 4 box sides
-            d = box_dist[:, keep].reshape(4, REG_MAX, -1)
-            d = _softmax(d, axis=1)
-            ltrb = (d * _BINS[None, :, None]).sum(axis=1)  # (4, n)
+            d = _softmax(box_dist[:, keep].reshape(4, REG_MAX, -1), axis=1)
+            ltrb = (d * _BINS[None, :, None]).sum(axis=1)
             gx = (keep % W) + 0.5
             gy = (keep // W) + 0.5
-            x1 = (gx - ltrb[0]) * stride
-            y1 = (gy - ltrb[1]) * stride
-            x2 = (gx + ltrb[2]) * stride
-            y2 = (gy + ltrb[3]) * stride
-            boxes_all.append(np.stack([x1, y1, x2, y2], axis=1))
+            boxes_all.append(np.stack([
+                (gx - ltrb[0]) * stride, (gy - ltrb[1]) * stride,
+                (gx + ltrb[2]) * stride, (gy + ltrb[3]) * stride], axis=1))
             scores_all.append(cls_score[keep])
-
             if kpt_out is not None:
-                cols = anchor_offset + keep
-                kp = kpt_out[0, :, cols].T.reshape(-1, NUM_KEYPOINTS, 3)
-                kp = kp.astype(np.float32).copy()
-                kp[:, :, 2] = _sigmoid(kp[:, :, 2])      # visibility -> [0,1]
+                kp = kpt_out[0, :, anchor_offset + keep].T.reshape(
+                    -1, num_keypoints, 3).astype(np.float32).copy()
+                kp[:, :, 2] = _sigmoid(kp[:, :, 2])
                 kpts_all.append(kp)
-
         anchor_offset += H * W
 
     if not boxes_all:
         return []
-
     boxes = np.concatenate(boxes_all, axis=0)
     scores = np.concatenate(scores_all, axis=0)
     kpts = (np.concatenate(kpts_all, axis=0) if kpts_all
-            else np.zeros((len(boxes), NUM_KEYPOINTS, 3), np.float32))
+            else np.zeros((len(boxes), num_keypoints, 3), np.float32))
 
-    detections = []
+    dets = []
     for i in _nms(boxes, scores, iou_thres):
-        box = boxes[i].copy()
-        box[[0, 2]] = (box[[0, 2]] - pad_x) / ratio
-        box[[1, 3]] = (box[[1, 3]] - pad_y) / ratio
+        box, kp = _map_back(boxes[i], kpts[i], letterbox)
+        dets.append({"box": box, "score": float(scores[i]), "keypoints": kp})
+    return dets
 
-        kp = kpts[i].copy()
-        kp[:, 0] = (kp[:, 0] - pad_x) / ratio
-        kp[:, 1] = (kp[:, 1] - pad_y) / ratio
 
-        detections.append({
-            "box": box.astype(np.int32),
-            "score": float(scores[i]),
-            "keypoints": kp,
-        })
-    return detections
+def decode(outputs, letterbox, num_keypoints=NUM_KEYPOINTS,
+           num_classes=NUM_CLASSES, conf_thres=0.5, iou_thres=0.45):
+    """Decode model outputs; auto-selects standard vs split-branch format."""
+    std_ch = 4 + num_classes + num_keypoints * 3
+    for o in outputs:
+        sq = np.squeeze(np.asarray(o))
+        if sq.ndim == 2 and std_ch in sq.shape:
+            return _decode_standard(o, letterbox, num_keypoints, num_classes,
+                                    conf_thres, iou_thres)
+    return _decode_split(outputs, letterbox, num_keypoints, num_classes,
+                         conf_thres, iou_thres)

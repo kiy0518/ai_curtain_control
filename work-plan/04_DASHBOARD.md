@@ -17,17 +17,21 @@
 - [ ] **오프라인/오류 상태 표시**: 카메라 오프라인·NPU 실패·모터 미연결·WebSocket 끊김 시 명확히 표기 + 자동 재연결
 
 ### 관리자 화면
-- [ ] 입력 이미지 크기 선택(224/320/640)
-- [ ] 모델 선택(.rknn 목록) + 적용(서버 재시작/리로드)
+- [ ] **모델/프로파일 선택**(대시보드에서 설정) — `hand_near`(근거리 손) / `body_far`(원거리 전신) 등
+      `src/profiles.py` 의 프로파일 목록을 드롭다운으로 노출 → 선택 시 **런타임 핫스왑**(서버 재시작 없이)
+- [ ] 입력 이미지 크기(224/320/640) — 모델별로 `.rknn` 에 고정이므로 **프로파일에 종속**(표시·검증)
 - [ ] 신뢰도(conf)·제스처 임계값 조정
 - [ ] **위치(좌표)·시간대 설정**(일출/일몰 스케줄용 — `05_*`)
 - [ ] 시스템 상태(NPU/CPU/메모리/온도, FPS, 로그)
+
+> **모델 선택 = 대시보드에서** (사용자 요청). CLI `--profile` 은 개발/초기값이고, 운영 중 전환은 대시보드로.
 
 > 부분 개폐(%)는 위치 피드백 확정 전까지 **표시/의도값(시간 추정)** 으로만 — 정밀 위치는 Phase M 이후.
 
 ## 설계
 - 서버: **FastAPI + uvicorn**, WebSocket으로 상태/이벤트 푸시(프레임은 보내지 않음).
-- 라우트: `/`(대시보드), `/api/state`, `/api/control`, `/api/settings`, `/api/schedules`, `/stream.mjpg`, `/ws`.
+- 라우트: `/`(대시보드), `/api/state`, `/api/control`, `/api/settings`, `/api/schedules`, `/api/model`, `/stream.mjpg`, `/ws`.
+- **모델 핫스왑 설계**: 추론 스레드가 현재 모델 핸들을 보유 → `/api/model {profile}` 수신 시 새 프로파일의 `.rknn` 로드 완료 후 원자적 교체(이전 핸들 release). 실패 시 롤백·오류 표시. `profiles.PROFILES` 가 선택지 소스.
 - **스트리밍 부하 주의**: JPEG는 **단일 공유 인코더**(현 `streaming.py`의 latest-slot 방식 유지)로 1회 인코딩 후 모든 클라이언트에 fan-out. 클라이언트별 재인코딩 금지, 동시 시청자 수 제한, 느린 소비자는 프레임 드롭.
 - ⚠️ **서빙 경로에서 `ultralytics`/torch import 금지**(torch가 이 보드에서 SIGILL). 추론은 `rknnlite` 직접 호출만.
 - 프론트: 경량 HTML/JS + Service Worker(PWA).

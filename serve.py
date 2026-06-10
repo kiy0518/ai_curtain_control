@@ -25,7 +25,8 @@ sys.path.insert(0, "src")
 from camera import isp_gst_pipeline                       # noqa: E402
 from draw import draw_detections, draw_fps, draw_gesture_banner  # noqa: E402
 from streaming import CameraThread, ProcessThread         # noqa: E402
-from gesture import classify, GestureStabilizer, extended_fingers  # noqa: E402
+from gesture import GestureStabilizer, extended_fingers     # noqa: E402
+from profiles import get_profile                            # noqa: E402
 import cv2                                                  # noqa: E402
 
 
@@ -106,7 +107,10 @@ def make_handler(process_thread):
 
 def parse_args():
     p = argparse.ArgumentParser(description="Low-latency web MJPEG stream")
-    p.add_argument("--model", default=None, help="Path to .rknn (optional overlay)")
+    p.add_argument("--profile", default="hand_near",
+                   help="model profile: hand_near (근거리 손) | body_far (원거리 전신)")
+    p.add_argument("--model", default=None, help="override .rknn path (default: profile's)")
+    p.add_argument("--no-model", action="store_true", help="camera only, no inference")
     p.add_argument("--device", default=None, help="Camera device (default ISP node)")
     p.add_argument("--width", type=int, default=1280)
     p.add_argument("--height", type=int, default=720)
@@ -115,51 +119,53 @@ def parse_args():
     p.add_argument("--host", default="0.0.0.0")
     p.add_argument("--quality", type=int, default=75, help="JPEG quality 1-100")
     p.add_argument("--conf", type=float, default=0.5)
-    p.add_argument("--imgsz", type=int, default=224,
-                   help="Model input size — must match the .rknn (224/320/640)")
+    p.add_argument("--imgsz", type=int, default=None,
+                   help="override input size — must match the .rknn (default: profile's)")
     p.add_argument("--debug", action="store_true",
-                   help="Overlay per-finger extension states for tuning")
+                   help="Overlay gesture debug (per-finger states for hand profile)")
     return p.parse_args()
 
 
 def main():
     args = parse_args()
 
+    profile = get_profile(args.profile)
     model = None
-    if args.model:
-        print(f"Loading model: {args.model}")
-        if args.model.endswith(".rknn"):
-            from hand_pose import HandPose            # NPU (rknnlite)
-            model = HandPose(args.model, conf_thres=args.conf, imgsz=args.imgsz)
-        else:
-            # The CPU/.pt backend (hand_pose_torch) exists but PyTorch's PyPI
-            # wheels crash (SIGILL) on this board's Cortex-A53/A72 cores, so the
-            # only working path here is RKNN on the NPU. Convert the model first.
-            raise SystemExit(
-                "이 보드에서는 .rknn 모델만 사용하세요 (torch CPU 추론은 SIGILL 로 불가).\n"
-                "convert/Colab_hand_to_rknn.ipynb 로 hand_pose.rknn 을 만들어 "
-                "--model models/hand_pose.rknn 으로 실행하세요.")
+    if not args.no_model:
+        model_path = args.model or profile.model_path
+        if not model_path.endswith(".rknn"):
+            raise SystemExit("이 보드에서는 .rknn 모델만 사용하세요 (torch CPU 추론 SIGILL).")
+        print(f"Profile: {profile.name} ({profile.desc})")
+        print(f"Loading model: {model_path} (imgsz={args.imgsz or profile.imgsz})")
+        from hand_pose import HandPose            # NPU (rknnlite)
+        model = HandPose.from_profile(profile, conf_thres=args.conf,
+                                      model_path=args.model, imgsz=args.imgsz)
 
     if args.device:
         pipeline = isp_gst_pipeline(args.device, args.width, args.height, args.fps)
     else:
         pipeline = isp_gst_pipeline(width=args.width, height=args.height, fps=args.fps)
 
-    # Gesture recognition: classify the most confident hand each frame,
-    # debounce it, and draw the Korean banner (열림/닫힘/정지) top-centre.
+    # Gesture recognition: classify the most confident detection each frame
+    # (using the active profile's classifier), debounce, draw Korean banner.
     stabilizer = GestureStabilizer(hold=5)
+    is_hand = profile.num_keypoints == 21
 
     def draw_with_gesture(frame, dets):
-        draw_detections(frame, dets)
+        draw_detections(frame, dets, skeleton=profile.skeleton,
+                        highlight=profile.highlight, label=profile.name)
         label = None
         if dets:
             best = max(dets, key=lambda d: d["score"])
-            label = classify(best["keypoints"])
+            label = profile.classify(best["keypoints"])
             if args.debug:
-                st = extended_fingers(best["keypoints"])
-                n = sum(st.values())
-                txt = "I:%d M:%d R:%d P:%d n=%d raw=%s" % (
-                    st["index"], st["middle"], st["ring"], st["pinky"], n, label)
+                if is_hand:
+                    st = extended_fingers(best["keypoints"])
+                    txt = "I:%d M:%d R:%d P:%d n=%d raw=%s" % (
+                        st["index"], st["middle"], st["ring"], st["pinky"],
+                        sum(st.values()), label)
+                else:
+                    txt = "raw=%s" % label
                 cv2.putText(frame, txt, (8, frame.shape[0] - 12),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2,
                             cv2.LINE_AA)

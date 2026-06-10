@@ -12,6 +12,8 @@ ignored — it is the least reliable and not needed to separate these three.
 
 import numpy as np
 
+from constants import GESTURE_KR  # noqa: F401  (single source; re-export)
+
 WRIST = 0
 # finger -> (tip index, pip/reference joint index)
 _FINGERS = {
@@ -20,8 +22,6 @@ _FINGERS = {
     "ring":   (16, 14),
     "pinky":  (20, 18),
 }
-
-GESTURE_KR = {"OPEN": "열림", "CLOSE": "닫힘", "STOP": "정지"}
 
 
 def extended_fingers(kpts):
