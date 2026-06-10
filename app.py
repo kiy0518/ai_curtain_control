@@ -14,11 +14,32 @@ Open http://<board-ip>:8080
 
 import argparse
 import json
+import logging
+import logging.handlers
+import os
 import sys
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 sys.path.insert(0, "src")
+
+_START = time.time()
+log = logging.getLogger("curtain")
+
+
+def setup_logging():
+    here = os.path.dirname(os.path.abspath(__file__))
+    logdir = os.path.join(here, "logs")
+    os.makedirs(logdir, exist_ok=True)
+    fmt = logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
+    fh = logging.handlers.RotatingFileHandler(
+        os.path.join(logdir, "curtain.log"), maxBytes=1_000_000, backupCount=3)
+    fh.setFormatter(fmt)
+    sh = logging.StreamHandler()
+    sh.setFormatter(fmt)
+    root = logging.getLogger()
+    root.setLevel(logging.INFO)
+    root.handlers[:] = [fh, sh]
 
 from camera import isp_gst_pipeline                # noqa: E402
 from draw import draw_fps                          # noqa: E402
@@ -391,6 +412,13 @@ def make_handler(proc, engine, controller, remote):
             if self.path == "/sw.js":
                 self._send(200, "application/javascript", SW_JS)
                 return
+            if self.path == "/healthz":
+                self._json({"status": "ok",
+                            "uptime_s": int(time.time() - _START),
+                            "camera": proc.jpeg_slot.get() is not None,
+                            "fps": round(proc.process_fps, 1),
+                            "profile": engine.state()["profile"]})
+                return
             if not self._authed():
                 if self.path in ("/", "/index.html"):
                     self._send(200, "text/html; charset=utf-8", LOGIN_HTML)
@@ -507,27 +535,36 @@ def make_handler(proc, engine, controller, remote):
     return H
 
 
+def _env(k, d):
+    return os.environ.get(k, d)
+
+
 def parse_args():
+    # defaults from config.env (CURTAIN_*) when present; flags override
     p = argparse.ArgumentParser(description="AI Curtain Control dashboard")
-    p.add_argument("--profile", default="hand_near", help="hand_near | body_far")
-    p.add_argument("--conf", type=float, default=0.3)
-    p.add_argument("--width", type=int, default=1280)
-    p.add_argument("--height", type=int, default=720)
-    p.add_argument("--fps", type=int, default=30)
-    p.add_argument("--port", type=int, default=8080)
-    p.add_argument("--host", default="0.0.0.0")
-    p.add_argument("--quality", type=int, default=75)
+    p.add_argument("--profile", default=_env("CURTAIN_PROFILE", "hand_near"),
+                   help="hand_near | body_far")
+    p.add_argument("--conf", type=float, default=float(_env("CURTAIN_CONF", "0.3")))
+    p.add_argument("--width", type=int, default=int(_env("CURTAIN_WIDTH", "1280")))
+    p.add_argument("--height", type=int, default=int(_env("CURTAIN_HEIGHT", "720")))
+    p.add_argument("--fps", type=int, default=int(_env("CURTAIN_FPS", "30")))
+    p.add_argument("--port", type=int, default=int(_env("CURTAIN_PORT", "8080")))
+    p.add_argument("--host", default=_env("CURTAIN_HOST", "0.0.0.0"))
+    p.add_argument("--quality", type=int, default=int(_env("CURTAIN_QUALITY", "75")))
     p.add_argument("--remote", action="store_true",
+                   default=_env("CURTAIN_REMOTE", "") == "1",
                    help="start a Cloudflare quick tunnel (public unique URL) at launch")
     return p.parse_args()
 
 
 def main():
+    setup_logging()
     args = parse_args()
     store.init()
     auth.init()
+    log.info("starting profile=%s port=%d remote=%s", args.profile, args.port, args.remote)
     if auth.is_default():
-        print("  ⚠ 기본 비밀번호 'admin' 사용 중 — 대시보드에서 변경하세요.")
+        log.warning("기본 비밀번호 'admin' 사용 중 — 대시보드에서 변경하세요.")
     controller = CurtainController()
     engine = PoseEngine(args.profile, conf=args.conf, controller=controller)
     scheduler = SchedulerThread(controller)
@@ -545,11 +582,12 @@ def main():
 
     server = ThreadingHTTPServer((args.host, args.port),
                                  make_handler(proc, engine, controller, remote))
+    log.info("dashboard ready: http://<board-ip>:%d", args.port)
     print(f"\n  ▶ 대시보드 →  http://<board-ip>:{args.port}   (Ctrl+C 종료)\n")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        print("\n종료 중...")
+        log.info("shutting down")
     finally:
         remote.stop(); scheduler.stop(); proc.stop(); cam.stop()
         server.shutdown(); engine.release()

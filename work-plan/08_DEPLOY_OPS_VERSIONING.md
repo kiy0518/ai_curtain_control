@@ -47,13 +47,17 @@ journalctl -u ai-curtain -f                # 로그
 > ※ 인자(모델/imgsz)는 추후 `config.env`로 빼서 ExecStart 단순화 권장.
 
 ## 운영 / 모니터링
-- [ ] 구조적 로깅(파일 로테이션) + 레벨
-- [ ] 헬스체크 엔드포인트(`/healthz`) + 시스템 지표(CPU/메모리/온도/FPS)
+- [x] 구조적 로깅(`logs/curtain.log`, RotatingFileHandler) + 콘솔
+- [x] 헬스체크 `GET /healthz`(무인증) — status/uptime/camera/fps/profile
+- [x] 시스템 지표 대시보드 표시(load/메모리/온도/FPS) — `/api/state`
 - [ ] 장애 알림(선택: 메일/푸시)
 
-## OTA / 업데이트
-- [ ] `git pull` 기반 업데이트 + 서비스 재시작 스크립트
-- [ ] 모델 핫스왑(대시보드 관리자에서 .rknn 교체)
+## 설정 / 배포
+- [x] `config.env`(CURTAIN_*) 환경변수 분리 + app.py env 기본값
+- [x] `deploy/install.sh`(opencv·cloudflared·config.env), `deploy/ai-curtain.service`
+- [x] `deploy/update.sh`(git pull + systemctl restart) — OTA 형태
+- [x] 모델 핫스왑(대시보드 관리자에서 프로파일 런타임 전환)
+- [ ] 자동실행 enable 은 Phase M(모터 준비) 시 (유닛 파일은 준비 완료)
 
 ## 버전 관리 (운용 규칙)
 - SemVer `v0.x` (1.0 전 개발). Phase 완료 → MINOR +1, 버그픽스 → PATCH.

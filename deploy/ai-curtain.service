@@ -1,0 +1,27 @@
+# AI Curtain Control — systemd unit (전원 ON 자동 실행).
+# 설치:
+#   sudo cp deploy/ai-curtain.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now ai-curtain
+#   journalctl -u ai-curtain -f          # 로그
+# config.env 로 모델/포트/원격 등을 조정 (config.env.example 참고).
+#
+# 참고: 로컬(카메라/NPU)은 네트워크 불필요 → network-online 의존 없음.
+# 시리얼 접근을 위해 dialout 그룹 포함(모터 연동 Phase M 대비).
+[Unit]
+Description=AI Curtain Control (camera + NPU gesture + dashboard)
+
+[Service]
+Type=simple
+User=radxa
+SupplementaryGroups=dialout video render
+WorkingDirectory=/home/radxa/Documents/ai_curtain_control
+EnvironmentFile=-/home/radxa/Documents/ai_curtain_control/config.env
+ExecStart=/usr/bin/python3 app.py
+Restart=always
+RestartSec=3
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Install]
+WantedBy=multi-user.target

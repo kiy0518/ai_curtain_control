@@ -12,3 +12,7 @@ __pycache__/
 
 # runtime db
 curtain.db
+
+# runtime
+logs/
+config.env

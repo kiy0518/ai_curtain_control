@@ -51,21 +51,32 @@ ai_curtain_control/
 
 ## 3. 실행
 
+### 대시보드 (메인 — `app.py`)
 ```bash
 cd ~/Documents/ai_curtain_control
-
-# 웹 스트리밍 + 제스처 (모델 입력 크기에 맞춰 --imgsz 지정)
-python3 serve.py --model models/hand_pose_640.rknn --imgsz 640 --conf 0.3
-python3 serve.py --model models/hand_pose_320.rknn --imgsz 320 --conf 0.3
-python3 serve.py --model models/hand_pose.rknn     --imgsz 224 --conf 0.3   # 가장 빠름
-
-# 손가락 상태 디버그 오버레이
-python3 serve.py --model models/hand_pose_640.rknn --imgsz 640 --debug
+bash deploy/install.sh          # 최초 1회: opencv·cloudflared·config.env
+python3 app.py                  # 프로파일/포트 등은 config.env 로 조정
+python3 app.py --profile body_far   # 또는 플래그로 override
 ```
-브라우저에서 **http://<board-ip>:8080** 접속.
-경로: `/`(뷰어), `/stream.mjpg`(MJPEG), `/snapshot.jpg`(단일 프레임).
+- 브라우저 **http://<board-ip>:8080** → **로그인**(기본 비밀번호 `admin`, 접속 후 변경).
+- 기능: 라이브 영상, 커튼 상태/제어(placeholder), **모델 런타임 전환**, 스케줄(시간·일출/일몰),
+  원격 접속 토글(cloudflared), 시스템 상태, 비밀번호 변경.
+- 부팅 자동실행: `deploy/ai-curtain.service` (systemd).
+- 운영: 로그 `logs/curtain.log`(회전), 헬스체크 `GET /healthz`(무인증).
 
-> ⚠️ **`--imgsz` 는 반드시 `.rknn` 의 입력 크기와 일치**해야 합니다. 모델에 입력 크기가 고정(baked-in)돼 있어, 안 맞으면 검출이 안 됩니다.
+### 부팅 자동 실행 (systemd)
+```bash
+sudo cp deploy/ai-curtain.service /etc/systemd/system/
+sudo systemctl daemon-reload && sudo systemctl enable --now ai-curtain
+journalctl -u ai-curtain -f
+```
+
+### (참고) 단순 스트리밍/디버그 — `serve.py`
+인증/대시보드 없이 스트림만:
+```bash
+python3 serve.py --model models/hand_pose_640.rknn --imgsz 640 --conf 0.3 --debug
+```
+> ⚠️ `--imgsz` 는 `.rknn` 입력 크기와 일치해야 합니다(모델에 고정). app.py 는 프로파일이 자동 지정.
 
 ---
 
