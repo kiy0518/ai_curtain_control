@@ -7,6 +7,7 @@ from PIL import Image, ImageDraw, ImageFont
 from constants import HAND_SKELETON, FINGERTIPS, GESTURE_KR
 
 _KP_CONF_THRES = 0.3
+_BOX_COLOR = (180, 105, 255)   # pink (BGR) for bounding box + label
 
 # Korean-capable font for the gesture banner (cv2 can't render Hangul).
 _FONT_PATH = "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc"
@@ -53,9 +54,9 @@ def draw_detections(frame, detections, skeleton=HAND_SKELETON,
     active model profile (hand vs body)."""
     for det in detections:
         x1, y1, x2, y2 = det["box"]
-        cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 200, 0), 2)
+        cv2.rectangle(frame, (x1, y1), (x2, y2), _BOX_COLOR, 2)
         cv2.putText(frame, f"{label} {det['score']:.2f}", (x1, max(0, y1 - 6)),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 200, 0), 1, cv2.LINE_AA)
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, _BOX_COLOR, 1, cv2.LINE_AA)
 
         kpts = det["keypoints"]
         for a, b in skeleton:
