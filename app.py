@@ -26,6 +26,8 @@ from streaming import CameraThread, ProcessThread  # noqa: E402
 from engine import PoseEngine                      # noqa: E402
 from controller import CurtainController           # noqa: E402
 from constants import GESTURE_KR                   # noqa: E402
+import store                                        # noqa: E402
+from scheduler import SchedulerThread              # noqa: E402
 
 
 # --- small system-info helper (no psutil dependency) -----------------------
@@ -62,77 +64,186 @@ def system_info():
 DASHBOARD_HTML = """<!doctype html>
 <html lang="ko"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
-<meta name="theme-color" content="#111">
+<meta name="theme-color" content="#141218">
 <link rel="manifest" href="/manifest.json">
 <title>AI 커튼 제어</title>
 <style>
- *{box-sizing:border-box} body{margin:0;background:#0e0e10;color:#eee;font-family:system-ui,sans-serif}
- header{background:#16161a;padding:12px 16px;font-size:18px;font-weight:700;color:#4CAF50;display:flex;justify-content:space-between;align-items:center}
- .badge{font-size:12px;padding:3px 8px;border-radius:10px;background:#333}
- .badge.on{background:#1b5e20}.badge.off{background:#7f1d1d}
- main{max-width:760px;margin:0 auto;padding:12px}
- .vid{position:relative} img#cam{width:100%;border:1px solid #333;border-radius:8px;display:block;background:#000;min-height:200px}
- .row{display:flex;gap:8px;margin:10px 0;flex-wrap:wrap}
- button{flex:1;min-width:90px;padding:14px;border:0;border-radius:8px;font-size:16px;font-weight:700;color:#fff;cursor:pointer}
- .open{background:#2e7d32}.close{background:#c62828}.stop{background:#ef6c00}
- .card{background:#16161a;border-radius:8px;padding:12px;margin:10px 0}
- .card h3{margin:0 0 8px;font-size:14px;color:#9aa}
- .kv{display:flex;justify-content:space-between;font-size:14px;padding:3px 0;border-bottom:1px solid #222}
- select,input[type=range]{width:100%} label{font-size:13px;color:#aab}
- .state{font-size:22px;font-weight:800;text-align:center;padding:8px}
- .note{font-size:12px;color:#888}
- details summary{cursor:pointer;color:#9aa;font-size:14px}
+ /* Material 3 (dark) tokens */
+ :root{
+   --bg:#141218; --surface:#1D1B20; --sc:#211F26; --sch:#2B2930;
+   --primary:#D0BCFF; --on-primary:#381E72; --on-surface:#E6E1E9; --on-var:#CAC4D0;
+   --outline:#49454F; --error:#F2B8B5; --sec-c:#4A4458; --on-sec-c:#E8DEF8;
+   --open:#A6D7A8; --open-c:#0A3D12; --stop:#FFCC80; --stop-c:#3A2600; --close:#F2B8B5; --close-c:#601410;
+ }
+ *{box-sizing:border-box}
+ body{margin:0;background:var(--bg);color:var(--on-surface);
+   font-family:Roboto,system-ui,"Noto Sans KR",sans-serif;font-size:15px}
+ .appbar{display:flex;justify-content:space-between;align-items:center;
+   padding:18px 20px;font-size:22px;font-weight:600}
+ .appbar .t{display:flex;align-items:center;gap:10px}
+ .chip{font-size:12px;font-weight:500;padding:6px 12px;border-radius:8px;
+   background:var(--sch);color:var(--on-var)}
+ .chip.on{background:#1b3a1f;color:var(--open)} .chip.off{background:#4a2024;color:var(--error)}
+ main{max-width:760px;margin:0 auto;padding:8px 16px 40px}
+ .card{background:var(--sc);border-radius:24px;padding:20px;margin:14px 0}
+ .card h3{margin:0 0 14px;font-size:15px;font-weight:600;color:var(--on-var)}
+ img#cam{width:100%;border-radius:20px;display:block;background:#000;min-height:200px}
+ .state{font-size:26px;font-weight:600;text-align:center;padding:6px 0 16px}
+ .state b{color:var(--primary)}
+ .ctl{display:flex;gap:12px}
+ .ctl button{flex:1;padding:16px 8px;border:0;border-radius:20px;font-size:16px;
+   font-weight:600;cursor:pointer;color:#fff}
+ .b-open{background:var(--open);color:var(--open-c)}
+ .b-stop{background:var(--stop);color:var(--stop-c)}
+ .b-close{background:var(--close);color:var(--close-c)}
+ .note{font-size:12px;color:var(--on-var);opacity:.8;margin-top:12px}
+ .kv{display:flex;justify-content:space-between;font-size:14px;padding:8px 0;
+   border-bottom:1px solid var(--outline)}
+ .kv:last-child{border:0} .kv b{color:var(--on-surface);font-weight:600}
+ label{font-size:13px;color:var(--on-var);display:block;margin:14px 0 6px}
+ select,input[type=text],input[type=time],input[type=number]{
+   width:100%;padding:12px 14px;border-radius:12px;border:1px solid var(--outline);
+   background:var(--sch);color:var(--on-surface);font-size:15px}
+ input[type=range]{width:100%;accent-color:var(--primary)}
+ .btn{display:inline-block;padding:10px 24px;border:0;border-radius:100px;
+   background:var(--primary);color:var(--on-primary);font-weight:600;font-size:14px;cursor:pointer}
+ .btn.tonal{background:var(--sec-c);color:var(--on-sec-c)}
+ .switch{position:relative;width:48px;height:28px;flex:0 0 auto}
+ .switch input{display:none}
+ .switch .tr{position:absolute;inset:0;border-radius:100px;background:var(--sch);
+   border:2px solid var(--outline);transition:.2s}
+ .switch .kn{position:absolute;top:6px;left:6px;width:14px;height:14px;border-radius:50%;
+   background:var(--on-var);transition:.2s}
+ .switch input:checked+.tr{background:var(--primary);border-color:var(--primary)}
+ .switch input:checked+.tr+.kn{left:26px;width:18px;height:18px;top:4px;background:var(--on-primary)}
+ .sched{display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--outline)}
+ .sched .info{flex:1} .sched .info .a{font-weight:600} .sched .info .d{font-size:12px;color:var(--on-var)}
+ .del{background:none;border:0;color:var(--error);font-size:18px;cursor:pointer}
+ .days{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
+ .day{padding:8px 0;width:38px;text-align:center;border-radius:100px;background:var(--sch);
+   color:var(--on-var);font-size:13px;cursor:pointer;user-select:none}
+ .day.sel{background:var(--primary);color:var(--on-primary);font-weight:600}
+ details summary{cursor:pointer;color:var(--on-var);font-weight:600;list-style:none}
+ details summary::-webkit-details-marker{display:none}
+ .grid2{display:flex;gap:12px} .grid2>*{flex:1}
 </style></head>
 <body>
-<header><span>🪟 AI 커튼 제어</span><span id="conn" class="badge off">연결 확인…</span></header>
+<div class="appbar"><span class="t">🪟 AI 커튼 제어</span><span id="conn" class="chip off">연결 확인…</span></div>
 <main>
- <div class="vid"><img id="cam" src="/stream.mjpg" alt="live"></div>
+ <div class="card" style="padding:8px"><img id="cam" src="/stream.mjpg" alt="live"></div>
 
  <div class="card">
-   <div class="state">커튼: <span id="curtain">—</span></div>
-   <div class="row">
-     <button class="open"  onclick="ctl('OPEN')">열기</button>
-     <button class="stop"  onclick="ctl('STOP')">정지</button>
-     <button class="close" onclick="ctl('CLOSE')">닫기</button>
+   <div class="state">커튼 <b id="curtain">—</b></div>
+   <div class="ctl">
+     <button class="b-open"  onclick="ctl('OPEN')">열기</button>
+     <button class="b-stop"  onclick="ctl('STOP')">정지</button>
+     <button class="b-close" onclick="ctl('CLOSE')">닫기</button>
    </div>
-   <div class="note" id="motornote">⚠ 모터 미연결(Phase M) — 버튼은 상태 표시용 placeholder</div>
+   <div class="note" id="motornote">모터 미연결(Phase M) — 버튼/상태는 표시용 placeholder</div>
+ </div>
+
+ <div class="card">
+   <h3>스케줄</h3>
+   <div id="schedlist"></div>
+   <details style="margin-top:12px"><summary>＋ 스케줄 추가</summary>
+     <div class="grid2">
+       <div><label>동작</label><select id="s_act"><option value="OPEN">열기</option><option value="CLOSE">닫기</option><option value="STOP">정지</option></select></div>
+       <div><label>방식</label><select id="s_kind" onchange="kindUI()"><option value="time">시간</option><option value="sun">일출/일몰</option></select></div>
+     </div>
+     <div id="s_time_box"><label>시각</label><input type="time" id="s_time" value="07:00"></div>
+     <div id="s_sun_box" style="display:none">
+       <div class="grid2">
+         <div><label>기준</label><select id="s_sun"><option value="sunrise">일출</option><option value="sunset">일몰</option></select></div>
+         <div><label>오프셋(분, ±)</label><input type="number" id="s_off" value="0"></div>
+       </div>
+     </div>
+     <label>요일 (없으면 매일)</label>
+     <div class="days" id="s_days"></div>
+     <label>이름(선택)</label><input type="text" id="s_name" placeholder="예: 아침 열기">
+     <div style="margin-top:14px"><button class="btn" onclick="addSched()">추가</button></div>
+   </details>
  </div>
 
  <div class="card">
    <h3>상태</h3>
    <div class="kv"><span>현재 제스처</span><b id="gesture">—</b></div>
    <div class="kv"><span>모델 / 입력</span><b id="model">—</b></div>
-   <div class="kv"><span>추론 / FPS</span><b id="perf">—</b></div>
+   <div class="kv"><span>추론</span><b id="perf">—</b></div>
    <div class="kv"><span>검출 수</span><b id="count">—</b></div>
-   <div class="kv"><span>CPU load / 메모리 / 온도</span><b id="sys">—</b></div>
+   <div class="kv"><span>load / 메모리 / 온도</span><b id="sys">—</b></div>
  </div>
 
  <details class="card"><summary>⚙️ 관리자 설정</summary>
-   <p><label>모델 / 프로파일 (런타임 전환)</label>
-      <select id="profile" onchange="setModel()"></select>
-      <span class="note" id="profdesc"></span></p>
-   <p><label>신뢰도(conf): <span id="confv"></span></label>
-      <input type="range" id="conf" min="0.1" max="0.8" step="0.05" onchange="setConf()"></p>
-   <p><label><input type="checkbox" id="gest" onchange="setGest()"> 제스처 인식 사용</label></p>
+   <label>모델 / 프로파일 (런타임 전환)</label>
+   <select id="profile" onchange="setModel()"></select>
+   <div class="note" id="profdesc"></div>
+   <label>신뢰도(conf): <span id="confv"></span></label>
+   <input type="range" id="conf" min="0.1" max="0.8" step="0.05" onchange="setConf()">
+   <label style="display:flex;align-items:center;gap:12px;margin-top:16px">제스처 인식 사용
+     <span class="switch"><input type="checkbox" id="gest" onchange="setGest()"><span class="tr"></span><span class="kn"></span></span>
+   </label>
+   <label>위치(일출/일몰 계산용)</label>
+   <div class="grid2">
+     <input type="number" id="lat" step="0.0001" placeholder="위도">
+     <input type="number" id="lon" step="0.0001" placeholder="경도">
+   </div>
+   <div style="margin-top:12px"><button class="btn tonal" onclick="saveLoc()">위치 저장</button></div>
  </details>
- <p class="note">사용자 스케줄/원격 접속은 다음 단계(Phase 3~4)에서 추가됩니다.</p>
 </main>
 <script>
 const $=id=>document.getElementById(id);
-let profilesLoaded=false;
+const KR={OPEN:'열림',CLOSE:'닫힘',STOP:'정지'};
+const stMap={OPEN:'열림',CLOSED:'닫힘',STOPPED:'정지',UNKNOWN:'—'};
+const DOW=['월','화','수','목','금','토','일'];
+let profilesLoaded=false, daysSel=new Set();
+
+// build weekday chips
+DOW.forEach((d,i)=>{const e=document.createElement('div');e.className='day';e.textContent=d;
+  e.onclick=()=>{e.classList.toggle('sel'); e.classList.contains('sel')?daysSel.add(i):daysSel.delete(i);};
+  $('s_days').appendChild(e);});
+function kindUI(){const sun=$('s_kind').value==='sun';$('s_sun_box').style.display=sun?'block':'none';$('s_time_box').style.display=sun?'none':'block';}
+
 async function ctl(a){ try{await fetch('/api/control',{method:'POST',body:JSON.stringify({action:a})});}catch(e){} }
-async function setModel(){ const p=$('profile').value; $('conn').textContent='모델 전환중…';
-  try{ await fetch('/api/model',{method:'POST',body:JSON.stringify({profile:p})}); }catch(e){} }
+async function setModel(){ $('conn').textContent='모델 전환중…';
+  try{ await fetch('/api/model',{method:'POST',body:JSON.stringify({profile:$('profile').value})}); }catch(e){} }
 async function setConf(){ const v=parseFloat($('conf').value); $('confv').textContent=v.toFixed(2);
   fetch('/api/settings',{method:'POST',body:JSON.stringify({conf:v})}); }
 async function setGest(){ fetch('/api/settings',{method:'POST',body:JSON.stringify({gesture_enabled:$('gest').checked})}); }
+async function saveLoc(){ await fetch('/api/settings',{method:'POST',body:JSON.stringify({lat:parseFloat($('lat').value),lon:parseFloat($('lon').value)})}); }
+
+async function addSched(){
+  const kind=$('s_kind').value;
+  const s={name:$('s_name').value,action:$('s_act').value,kind:kind,
+    days:[...daysSel].sort().join(','),enabled:true};
+  if(kind==='time'){const[h,m]=$('s_time').value.split(':');s.hh=+h;s.mm=+m;}
+  else{s.sun_event=$('s_sun').value;s.sun_offset=parseInt($('s_off').value||'0');}
+  await fetch('/api/schedules',{method:'POST',body:JSON.stringify(s)});
+  $('s_name').value=''; daysSel.clear(); document.querySelectorAll('.day.sel').forEach(e=>e.classList.remove('sel'));
+}
+async function delSched(id){ await fetch('/api/schedules/delete',{method:'POST',body:JSON.stringify({id})}); }
+async function togSched(id,en){ await fetch('/api/schedules/toggle',{method:'POST',body:JSON.stringify({id,enabled:en})}); }
+
+function renderSched(list){
+  const box=$('schedlist'); box.innerHTML = list.length?'':'<div class="note">스케줄 없음</div>';
+  list.forEach(s=>{
+    const when = s.kind==='time' ? String(s.hh).padStart(2,'0')+':'+String(s.mm).padStart(2,'0')
+      : (s.sun_event==='sunrise'?'☀️일출':'🌇일몰')+(s.sun_offset?(s.sun_offset>0?'+':'')+s.sun_offset+'분':'');
+    const days = s.days? s.days.split(',').map(i=>DOW[+i]).join('') : '매일';
+    const row=document.createElement('div'); row.className='sched';
+    row.innerHTML='<div class="info"><div class="a">'+KR[s.action]+' · '+when+'</div>'
+      +'<div class="d">'+days+(s.name?' · '+s.name:'')+'</div></div>'
+      +'<label class="switch"><input type="checkbox" '+(s.enabled?'checked':'')+'><span class="tr"></span><span class="kn"></span></label>'
+      +'<button class="del">🗑</button>';
+    row.querySelector('input').onchange=e=>togSched(s.id,e.target.checked);
+    row.querySelector('.del').onclick=()=>delSched(s.id);
+    box.appendChild(row);
+  });
+}
 
 async function poll(){
  try{
-   const r=await fetch('/api/state'); const s=await r.json();
-   $('conn').textContent='온라인'; $('conn').className='badge on';
-   const KR={OPEN:'열림',CLOSE:'닫힘',STOP:'정지',OPEN_:'열림'};
-   const stMap={OPEN:'열림',CLOSED:'닫힘',STOPPED:'정지',UNKNOWN:'—'};
+   const s=await (await fetch('/api/state')).json();
+   $('conn').textContent='온라인'; $('conn').className='chip on';
    $('curtain').textContent=stMap[s.curtain.state]||s.curtain.state;
    $('motornote').style.display=s.curtain.motor_connected?'none':'block';
    $('gesture').textContent=s.engine.gesture?(KR[s.engine.gesture]||s.engine.gesture):'—';
@@ -140,14 +251,18 @@ async function poll(){
    $('perf').textContent=s.engine.infer_ms+'ms';
    $('count').textContent=s.engine.count;
    $('sys').textContent=s.system.load+' / '+s.system.mem_used_mb+'·'+s.system.mem_total_mb+'MB / '+(s.system.temp_c??'?')+'°C';
+   renderSched(s.schedules||[]);
    if(!profilesLoaded){
      const sel=$('profile'); sel.innerHTML='';
      s.profiles.forEach(p=>{const o=document.createElement('option');o.value=p.name;o.textContent=p.name+' ('+p.num_keypoints+'kp '+p.imgsz+')';sel.appendChild(o);});
-     sel.value=s.engine.profile; $('profdesc').textContent=s.engine.profile_desc;
+     sel.value=s.engine.profile;
      $('conf').value=s.engine.conf; $('confv').textContent=(+s.engine.conf).toFixed(2);
-     $('gest').checked=s.engine.gesture_enabled; profilesLoaded=true;
-   } else { $('profdesc').textContent=s.engine.profile_desc; }
- }catch(e){ $('conn').textContent='오프라인'; $('conn').className='badge off'; }
+     $('gest').checked=s.engine.gesture_enabled;
+     if(s.location){$('lat').value=s.location.lat||''; $('lon').value=s.location.lon||'';}
+     profilesLoaded=true;
+   }
+   $('profdesc').textContent=s.engine.profile_desc;
+ }catch(e){ $('conn').textContent='오프라인'; $('conn').className='chip off'; }
 }
 setInterval(poll,1000); poll();
 if('serviceWorker' in navigator){navigator.serviceWorker.register('/sw.js').catch(()=>{});}
@@ -204,6 +319,9 @@ def make_handler(proc, engine, controller):
                     "curtain": controller.snapshot(),
                     "system": system_info(),
                     "profiles": engine.available_profiles(),
+                    "schedules": store.list_schedules(),
+                    "location": {"lat": store.get_setting("lat"),
+                                 "lon": store.get_setting("lon")},
                 })
             elif self.path == "/snapshot.jpg":
                 jpeg = proc.jpeg_slot.get()
@@ -246,7 +364,20 @@ def make_handler(proc, engine, controller):
                     engine.set_conf(float(data["conf"]))
                 if "gesture_enabled" in data:
                     engine.set_gesture_enabled(bool(data["gesture_enabled"]))
+                if "lat" in data:
+                    store.set_setting("lat", float(data["lat"]))
+                if "lon" in data:
+                    store.set_setting("lon", float(data["lon"]))
                 self._json({"ok": True})
+            elif self.path == "/api/schedules":
+                store.add_schedule(data)
+                self._json({"ok": True, "schedules": store.list_schedules()})
+            elif self.path == "/api/schedules/delete":
+                store.delete_schedule(int(data.get("id")))
+                self._json({"ok": True, "schedules": store.list_schedules()})
+            elif self.path == "/api/schedules/toggle":
+                store.set_enabled(int(data.get("id")), bool(data.get("enabled")))
+                self._json({"ok": True, "schedules": store.list_schedules()})
             else:
                 self.send_error(404)
     return H
@@ -267,8 +398,11 @@ def parse_args():
 
 def main():
     args = parse_args()
+    store.init()
     controller = CurtainController()
     engine = PoseEngine(args.profile, conf=args.conf, controller=controller)
+    scheduler = SchedulerThread(controller)
+    scheduler.start()
 
     pipeline = isp_gst_pipeline(width=args.width, height=args.height, fps=args.fps)
     cam = CameraThread(pipeline)
@@ -285,7 +419,7 @@ def main():
     except KeyboardInterrupt:
         print("\n종료 중...")
     finally:
-        proc.stop(); cam.stop(); server.shutdown(); engine.release()
+        scheduler.stop(); proc.stop(); cam.stop(); server.shutdown(); engine.release()
 
 
 if __name__ == "__main__":
