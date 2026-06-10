@@ -150,8 +150,13 @@ DASHBOARD_HTML = """<!doctype html>
  details summary{cursor:pointer;color:var(--on-var);font-weight:600;list-style:none}
  details summary::-webkit-details-marker{display:none}
  .grid2{display:flex;gap:12px} .grid2>*{flex:1}
+ #toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%) translateY(20px);
+   background:var(--sec-c);color:var(--on-sec-c);padding:12px 20px;border-radius:100px;
+   font-size:14px;opacity:0;transition:.25s;pointer-events:none;z-index:99}
+ #toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
 </style></head>
 <body>
+<div id="toast"></div>
 <div class="appbar"><span class="t">🪟 AI 커튼 제어</span>
   <span><span id="conn" class="chip off">연결 확인…</span>
   <button class="chip" style="border:0;cursor:pointer;margin-left:6px" onclick="logout()">로그아웃</button></span></div>
@@ -213,8 +218,9 @@ DASHBOARD_HTML = """<!doctype html>
    <label>모델 / 프로파일 (런타임 전환)</label>
    <select id="profile" onchange="setModel()"></select>
    <div class="note" id="profdesc"></div>
-   <label>신뢰도(conf): <span id="confv"></span></label>
-   <input type="range" id="conf" min="0.1" max="0.8" step="0.05" onchange="setConf()">
+   <label>신뢰도(conf) — 0.05 ~ 0.95 (숫자 입력)</label>
+   <input type="number" id="conf" min="0.05" max="0.95" step="0.05" inputmode="decimal"
+          onchange="setConf()">
    <label style="display:flex;align-items:center;gap:12px;margin-top:16px">제스처 인식 사용
      <span class="switch"><input type="checkbox" id="gest" onchange="setGest()"><span class="tr"></span><span class="kn"></span></span>
    </label>
@@ -233,6 +239,8 @@ DASHBOARD_HTML = """<!doctype html>
 </main>
 <script>
 const $=id=>document.getElementById(id);
+let _tt; function toast(m){const t=$('toast');t.textContent=m;t.classList.add('show');
+  clearTimeout(_tt);_tt=setTimeout(()=>t.classList.remove('show'),1500);}
 const KR={OPEN:'열림',CLOSE:'닫힘',STOP:'정지'};
 const stMap={OPEN:'열림',CLOSED:'닫힘',STOPPED:'정지',UNKNOWN:'—'};
 const DOW=['월','화','수','목','금','토','일'];
@@ -246,11 +254,12 @@ function kindUI(){const sun=$('s_kind').value==='sun';$('s_sun_box').style.displ
 
 async function ctl(a){ try{await fetch('/api/control',{method:'POST',body:JSON.stringify({action:a})});}catch(e){} }
 async function setModel(){ $('conn').textContent='모델 전환중…';
-  try{ await fetch('/api/model',{method:'POST',body:JSON.stringify({profile:$('profile').value})}); }catch(e){} }
-async function setConf(){ const v=parseFloat($('conf').value); $('confv').textContent=v.toFixed(2);
-  fetch('/api/settings',{method:'POST',body:JSON.stringify({conf:v})}); }
-async function setGest(){ fetch('/api/settings',{method:'POST',body:JSON.stringify({gesture_enabled:$('gest').checked})}); }
-async function saveLoc(){ await fetch('/api/settings',{method:'POST',body:JSON.stringify({lat:parseFloat($('lat').value),lon:parseFloat($('lon').value)})}); }
+  try{ await fetch('/api/model',{method:'POST',body:JSON.stringify({profile:$('profile').value})}); toast('모델 저장됨'); }catch(e){} }
+async function setConf(){ let v=parseFloat($('conf').value);
+  if(isNaN(v)) return; v=Math.min(0.95,Math.max(0.05,v)); $('conf').value=v;
+  await fetch('/api/settings',{method:'POST',body:JSON.stringify({conf:v})}); toast('신뢰도 저장됨 '+v.toFixed(2)); }
+async function setGest(){ await fetch('/api/settings',{method:'POST',body:JSON.stringify({gesture_enabled:$('gest').checked})}); toast('저장됨'); }
+async function saveLoc(){ await fetch('/api/settings',{method:'POST',body:JSON.stringify({lat:parseFloat($('lat').value),lon:parseFloat($('lon').value)})}); toast('위치 저장됨'); }
 async function setRemote(){ const en=$('rem').checked; $('remurl').textContent=en?'터널 생성중… (몇 초)':'';
   await fetch('/api/remote',{method:'POST',body:JSON.stringify({enable:en})}); }
 async function logout(){ await fetch('/api/logout',{method:'POST'}); location.href='/login'; }
@@ -313,7 +322,7 @@ async function poll(){
      const sel=$('profile'); sel.innerHTML='';
      s.profiles.forEach(p=>{const o=document.createElement('option');o.value=p.name;o.textContent=p.name+' ('+p.num_keypoints+'kp '+p.imgsz+')';sel.appendChild(o);});
      sel.value=s.engine.profile;
-     $('conf').value=s.engine.conf; $('confv').textContent=(+s.engine.conf).toFixed(2);
+     $('conf').value=(+s.engine.conf).toFixed(2);
      $('gest').checked=s.engine.gesture_enabled;
      if(s.location){$('lat').value=s.location.lat||''; $('lon').value=s.location.lon||'';}
      profilesLoaded=true;
@@ -502,14 +511,18 @@ def make_handler(proc, engine, controller, remote):
             elif self.path == "/api/model":
                 try:
                     prof = engine.set_profile(str(data.get("profile", "")))
+                    store.set_setting("profile", prof.name)      # 영구 저장
                     self._json({"ok": True, "profile": prof.name})
                 except Exception as e:
                     self._json({"ok": False, "error": str(e)}, 400)
             elif self.path == "/api/settings":
                 if "conf" in data:
                     engine.set_conf(float(data["conf"]))
+                    store.set_setting("conf", float(data["conf"]))
                 if "gesture_enabled" in data:
-                    engine.set_gesture_enabled(bool(data["gesture_enabled"]))
+                    g = bool(data["gesture_enabled"])
+                    engine.set_gesture_enabled(g)
+                    store.set_setting("gesture_enabled", "1" if g else "0")
                 if "lat" in data:
                     store.set_setting("lat", float(data["lat"]))
                 if "lon" in data:
@@ -569,7 +582,18 @@ def main():
     if auth.is_default():
         log.warning("기본 비밀번호 'admin' 사용 중 — 대시보드에서 변경하세요.")
     controller = CurtainController()
-    engine = PoseEngine(args.profile, conf=args.conf, controller=controller)
+    # saved settings (SQLite) take precedence over CLI/env defaults
+    saved_profile = store.get_setting("profile") or args.profile
+    try:
+        saved_conf = float(store.get_setting("conf"))
+    except (TypeError, ValueError):
+        saved_conf = args.conf
+    engine = PoseEngine(saved_profile, conf=saved_conf, controller=controller)
+    g = store.get_setting("gesture_enabled")
+    if g is not None:
+        engine.set_gesture_enabled(g == "1")
+    log.info("settings: profile=%s conf=%.2f gesture=%s",
+             saved_profile, saved_conf, engine.gesture_enabled)
     scheduler = SchedulerThread(controller)
     scheduler.start()
     remote = RemoteManager(args.port)

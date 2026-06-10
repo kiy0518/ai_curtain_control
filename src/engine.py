@@ -59,14 +59,16 @@ class PoseEngine:
 
     # --- per-frame ---------------------------------------------------------
     def process(self, frame):
+        # Infer INSIDE the lock so a concurrent set_profile() can't release the
+        # model mid-inference (use-after-free → native crash). The swap waits
+        # for the current frame (~tens of ms); model *loading* stays off-lock.
         with self._lock:
-            model, prof = self.model, self.profile
-        if model is None:
-            return frame
-
-        t = time.time()
-        dets = model.infer(frame)
-        infer_ms = (time.time() - t) * 1000.0
+            if self.model is None:
+                return frame
+            prof = self.profile
+            t = time.time()
+            dets = self.model.infer(frame)
+            infer_ms = (time.time() - t) * 1000.0
 
         draw_detections(frame, dets, skeleton=prof.skeleton,
                         highlight=prof.highlight, label=prof.name)
