@@ -88,13 +88,16 @@ class ProcessThread(threading.Thread):
     to JPEG, publish into a drop-old slot. Skips frames it can't keep up with."""
 
     def __init__(self, camera_slot, model=None, jpeg_quality=80, draw_fn=None,
-                 fps_fn=None):
+                 fps_fn=None, process_fn=None):
         super().__init__(daemon=True)
         self.camera_slot = camera_slot
         self.model = model
         self.jpeg_quality = jpeg_quality
         self.draw_fn = draw_fn
         self.fps_fn = fps_fn
+        # process_fn(frame) does the whole infer+draw step (e.g. PoseEngine);
+        # takes precedence over model/draw_fn when given.
+        self.process_fn = process_fn
 
         self.jpeg_slot = LatestSlot()
         self._running = True
@@ -109,7 +112,9 @@ class ProcessThread(threading.Thread):
             if frame is None:
                 continue
 
-            if self.model is not None:
+            if self.process_fn is not None:
+                self.process_fn(frame)
+            elif self.model is not None:
                 dets = self.model.infer(frame)
                 if self.draw_fn:
                     self.draw_fn(frame, dets)
