@@ -341,15 +341,17 @@ LOGIN_HTML = """<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#141218"><title>로그인 · AI 커튼</title>
 <style>
+ *{box-sizing:border-box}
  body{margin:0;height:100vh;display:flex;align-items:center;justify-content:center;
    background:#141218;color:#E6E1E9;font-family:Roboto,system-ui,"Noto Sans KR",sans-serif}
- .box{background:#211F26;padding:32px 28px;border-radius:28px;width:300px;text-align:center}
- h1{font-size:20px;margin:0 0 20px}
- input{width:100%;padding:14px;border-radius:12px;border:1px solid #49454F;
-   background:#2B2930;color:#E6E1E9;font-size:16px;margin-bottom:14px}
- button{width:100%;padding:14px;border:0;border-radius:100px;background:#D0BCFF;
-   color:#381E72;font-weight:600;font-size:15px;cursor:pointer}
- .err{color:#F2B8B5;font-size:13px;min-height:18px;margin-bottom:8px}
+ .box{background:#211F26;padding:28px;border-radius:28px;width:320px;
+   display:flex;flex-direction:column;gap:14px;text-align:center}
+ h1{font-size:20px;margin:0}
+ input{width:100%;height:52px;padding:0 16px;border-radius:12px;border:1px solid #49454F;
+   background:#2B2930;color:#E6E1E9;font-size:16px}
+ button{width:100%;height:52px;border:0;border-radius:100px;background:#D0BCFF;
+   color:#381E72;font-weight:600;font-size:16px;cursor:pointer}
+ .err{color:#F2B8B5;font-size:13px;min-height:16px;margin:0}
 </style></head>
 <body><div class="box">
  <h1>🪟 AI 커튼 제어</h1>

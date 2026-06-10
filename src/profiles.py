@@ -42,7 +42,7 @@ PROFILES = {
         skeleton=constants.HAND_SKELETON,
         highlight=constants.FINGERTIPS,
         classify=gesture_hand.classify,
-        desc="근거리 손 제스처(손가락): 손바닥=열림 / 주먹=닫힘 / 브이=정지",
+        desc="근거리 손 제스처: 👍엄지 위=열림 / 👈엄지 옆=닫힘 / 🖐손바닥=정지",
     ),
     # 원거리: 전신 17키포인트, 팔 제스처 (양팔위=열림/교차=닫힘/한팔수평=정지)
     "body_far": ModelProfile(
