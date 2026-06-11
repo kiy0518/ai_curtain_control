@@ -34,6 +34,12 @@ class ModelProfile:
     # 이벤트형 분류기 팩토리: () -> obj with .update(dets, now) — 상태를 가지며
     # 제스처 확정 순간 1회만 라벨 반환(자체 디바운싱). 둘 중 하나만 설정.
     make_classifier: Optional[Callable] = None
+    # 적응형 신뢰도(작은 박스=관대) 크기 기준 — 프로파일마다 다름:
+    # 박스높이/프레임높이 ≤ dyn_small_h → floor(=conf*dyn_floor_ratio),
+    # ≥ dyn_big_h → full conf. 손은 작게(0.12~0.45), 전신은 세로로 길어 크게.
+    dyn_small_h: float = 0.12
+    dyn_big_h: float = 0.45
+    dyn_floor_ratio: float = 0.4
     desc: str = ""
 
 
@@ -60,6 +66,7 @@ PROFILES = {
         skeleton=constants.BODY_SKELETON,
         highlight=[9, 10],          # wrists
         classify=gesture_body.classify,
+        dyn_small_h=0.30, dyn_big_h=0.80,   # 사람 박스는 세로로 김 → 기준 키움
         desc="원거리 전신 팔 제스처: 오른팔수평=열림 / 왼팔수평=닫힘 / X교차=정지",
     ),
     # 원거리: 전신 17키포인트, 손목 '움직임' 제스처 (모델은 body_far와 동일)
@@ -72,6 +79,7 @@ PROFILES = {
         skeleton=constants.BODY_SKELETON,
         highlight=[9, 10],          # wrists
         make_classifier=gesture_motion.WristMotionClassifier,
+        dyn_small_h=0.30, dyn_big_h=0.80,   # 사람 박스는 세로로 김 → 기준 키움
         desc="원거리 손목 움직임: 손 들고 우→좌=열림 / 좌→우=닫힘 / 멈춤유지=정지",
     ),
 }

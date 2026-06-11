@@ -17,11 +17,9 @@ from draw import draw_detections, draw_hud, draw_motion_debug
 
 EVENT_HUD_SEC = 2.0    # 이벤트형 제스처를 HUD에 유지 표시하는 시간
 
-# 적응형 신뢰도(작은 박스=관대): 박스 높이가 프레임의 이 비율 이하면 floor conf,
-# 이상이면 full conf, 사이는 선형 보간. floor = conf * DYN_FLOOR_RATIO.
-DYN_FLOOR_RATIO = 0.4
-DYN_SMALL_H = 0.12     # 박스높이/프레임높이 ≤ 이 값 → 가장 관대(먼 손)
-DYN_BIG_H = 0.45       # ≥ 이 값 → full conf(가까운 큰 손)
+# 적응형 신뢰도(작은 박스=관대): 박스 높이가 프레임의 prof.dyn_small_h 이하면
+# floor conf, dyn_big_h 이상이면 full conf, 사이는 선형 보간.
+# floor = conf * prof.dyn_floor_ratio. 임계값은 프로파일마다 다름(손 vs 전신).
 
 
 class PoseEngine:
@@ -58,7 +56,7 @@ class PoseEngine:
         """Load ``name``'s model and atomically swap it in. Slow (~0.5s);
         called from the HTTP thread. Raises on unknown/failed model."""
         prof = get_profile(name)
-        new = HandPose.from_profile(prof, conf_thres=self._floor(),
+        new = HandPose.from_profile(prof, conf_thres=self._floor(prof),
                                     model_path=model_path)
         tracker = prof.make_classifier() if prof.make_classifier else None
         if tracker is not None and hasattr(tracker, "set_timing"):
@@ -73,18 +71,25 @@ class PoseEngine:
             old.release()
         return prof
 
-    def _floor(self):
+    def _floor(self, prof=None):
         """모델에 적용할 탐지 바닥 신뢰도. 적응형이면 conf보다 낮춰 작은(먼)
-        박스도 디코드에서 살아남게 하고, 크기별 최종 판정은 _size_filter가 한다."""
-        return self.conf * DYN_FLOOR_RATIO if self.dyn_conf else self.conf
+        박스도 디코드에서 살아남게 하고, 크기별 최종 판정은 _size_filter가 한다.
+        floor 비율은 프로파일별(prof.dyn_floor_ratio)."""
+        prof = prof if prof is not None else self.profile
+        if self.dyn_conf and prof is not None:
+            return self.conf * prof.dyn_floor_ratio
+        return self.conf
 
-    def _size_filter(self, dets, frame_h):
-        """박스 높이가 클수록 더 높은 신뢰도를 요구(작을수록 관대)."""
-        floor, span = self._floor(), self.conf - self._floor()
+    def _size_filter(self, dets, frame_h, prof):
+        """박스 높이가 클수록 더 높은 신뢰도를 요구(작을수록 관대). 크기 기준은
+        프로파일별(prof.dyn_small_h/dyn_big_h) — 손과 전신이 다르다."""
+        floor = self._floor(prof)
+        span = self.conf - floor
+        small, big = prof.dyn_small_h, prof.dyn_big_h
         kept = []
         for d in dets:
             h_frac = (float(d["box"][3]) - float(d["box"][1])) / max(1, frame_h)
-            t = (h_frac - DYN_SMALL_H) / (DYN_BIG_H - DYN_SMALL_H)
+            t = (h_frac - small) / (big - small)
             t = 0.0 if t < 0 else 1.0 if t > 1 else t
             if d["score"] >= floor + span * t:
                 kept.append(d)
@@ -155,7 +160,7 @@ class PoseEngine:
             infer_ms = (time.time() - t) * 1000.0
 
         if self.dyn_conf:
-            dets = self._size_filter(dets, frame.shape[0])
+            dets = self._size_filter(dets, frame.shape[0], prof)
 
         draw_detections(frame, dets, skeleton=prof.skeleton,
                         highlight=prof.highlight, label=prof.name)
