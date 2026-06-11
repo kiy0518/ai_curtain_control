@@ -93,3 +93,11 @@ class GestureStabilizer:
         if self._count >= self.hold:
             self.committed = self._cand
         return self.committed
+
+    @property
+    def candidate(self):
+        return self._cand
+
+    @property
+    def count(self):
+        return self._count

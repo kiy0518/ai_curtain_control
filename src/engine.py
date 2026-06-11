@@ -10,7 +10,7 @@ import time
 from profiles import get_profile, PROFILES
 from hand_pose import HandPose
 from gesture import GestureStabilizer
-from draw import draw_detections, draw_gesture_banner
+from draw import draw_detections, draw_hud
 
 
 class PoseEngine:
@@ -82,19 +82,24 @@ class PoseEngine:
                         highlight=prof.highlight, label=prof.name)
 
         raw = None
-        if dets and self.gesture_enabled:
+        score = 0.0
+        if dets:
             best = max(dets, key=lambda d: d["score"])
-            raw = prof.classify(best["keypoints"])
+            score = best["score"]
+            if self.gesture_enabled:
+                raw = prof.classify(best["keypoints"])
 
         committed = self.stabilizer.update(raw)
         # fire a curtain command only when the committed gesture changes
         if committed and committed != self._committed and self.controller:
             self.controller.command(committed, "gesture")
         self._committed = committed
-        draw_gesture_banner(frame, committed)
+        # top-centre HUD: gesture + confirm counter (N/hold) + confidence
+        draw_hud(frame, committed, self.stabilizer.candidate,
+                 self.stabilizer.count, self.hold, score)
 
         self.stats = {"infer_ms": round(infer_ms, 1), "count": len(dets),
-                      "raw": raw, "gesture": committed}
+                      "raw": raw, "gesture": committed, "score": round(score, 2)}
         return frame
 
     # --- introspection for the dashboard ----------------------------------

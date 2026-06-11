@@ -48,6 +48,44 @@ def draw_gesture_banner(frame, label):
     return frame
 
 
+def draw_hud(frame, committed, candidate, count, hold, score):
+    """Top-centre HUD: confirmed gesture (large) + confirm counter (N/hold) +
+    detection confidence (large)."""
+    w = frame.shape[1]
+    cx = w // 2
+    img = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+    d = ImageDraw.Draw(img)
+    big = _font(max(34, w // 12))
+    med = _font(max(22, w // 26))
+
+    lines = []   # (text, font, rgb)
+    if committed:
+        lines.append((GESTURE_KR.get(committed, committed), big,
+                      _GESTURE_RGB.get(committed, (255, 255, 255))))
+    # counter: only while an actual gesture candidate is building up
+    if candidate:
+        lines.append((f"{GESTURE_KR.get(candidate, candidate)}  {min(count, hold)}/{hold}",
+                      med, (210, 210, 220)))
+    elif not committed:
+        lines.append(("대기", med, (150, 150, 160)))
+    # confidence (large)
+    if score > 0:
+        lines.append((f"신뢰도 {score:.2f}", med, (140, 220, 160)))
+
+    y = 10
+    for text, font, rgb in lines:
+        x0, y0, x1, y1 = d.textbbox((0, 0), text, font=font)
+        tw, th = x1 - x0, y1 - y0
+        pad = 8
+        d.rectangle([cx - tw // 2 - pad, y, cx + tw // 2 + pad, y + th + 2 * pad],
+                    fill=(0, 0, 0))
+        d.text((cx - tw // 2 - x0, y + pad - y0), text, font=font, fill=rgb)
+        y += th + 2 * pad + 6
+
+    frame[:] = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
+    return frame
+
+
 def draw_detections(frame, detections, skeleton=HAND_SKELETON,
                     highlight=FINGERTIPS, label="hand"):
     """Render detections in place. ``skeleton``/``highlight`` come from the
