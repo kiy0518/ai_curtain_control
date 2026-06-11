@@ -10,7 +10,9 @@ import time
 from profiles import get_profile, PROFILES
 from hand_pose import HandPose
 from gesture import GestureStabilizer
-from draw import draw_detections, draw_hud
+from draw import draw_detections, draw_hud, draw_motion_debug
+
+EVENT_HUD_SEC = 2.0    # 이벤트형 제스처를 HUD에 유지 표시하는 시간
 
 
 class PoseEngine:
@@ -24,7 +26,10 @@ class PoseEngine:
         self._lock = threading.Lock()
         self.model = None
         self.profile = None
+        self.tracker = None                    # 이벤트형 분류기 (프로파일에 따라)
         self._committed = None
+        self._last_event = None                # 이벤트형: 마지막 확정 제스처
+        self._last_event_ts = 0.0
         self.stats = {"infer_ms": 0.0, "count": 0, "raw": None, "gesture": None}
         self.set_profile(profile_name)
 
@@ -35,10 +40,13 @@ class PoseEngine:
         prof = get_profile(name)
         new = HandPose.from_profile(prof, conf_thres=self.conf,
                                     model_path=model_path)
+        tracker = prof.make_classifier() if prof.make_classifier else None
         with self._lock:
             old, self.model, self.profile = self.model, new, prof
+            self.tracker = tracker             # 상태 분류기는 스왑 시 새로 생성
             self.stabilizer = GestureStabilizer(hold=self.hold)
             self._committed = None
+            self._last_event, self._last_event_ts = None, 0.0
         if old is not None:
             old.release()
         return prof
@@ -74,6 +82,7 @@ class PoseEngine:
             if self.model is None:
                 return frame
             prof = self.profile
+            tracker = self.tracker
             t = time.time()
             dets = self.model.infer(frame)
             infer_ms = (time.time() - t) * 1000.0
@@ -81,22 +90,34 @@ class PoseEngine:
         draw_detections(frame, dets, skeleton=prof.skeleton,
                         highlight=prof.highlight, label=prof.name)
 
-        raw = None
-        score = 0.0
-        if dets:
-            best = max(dets, key=lambda d: d["score"])
-            score = best["score"]
-            if self.gesture_enabled:
-                raw = prof.classify(best["keypoints"])
+        score = max((d["score"] for d in dets), default=0.0)
 
-        committed = self.stabilizer.update(raw)
-        # fire a curtain command only when the committed gesture changes
-        if committed and committed != self._committed and self.controller:
-            self.controller.command(committed, "gesture")
-        self._committed = committed
-        # top-centre HUD: gesture + confirm counter (N/hold) + confidence
-        draw_hud(frame, committed, self.stabilizer.candidate,
-                 self.stabilizer.count, self.hold, score)
+        if tracker is not None:
+            # 이벤트형(움직임) 분류기: 확정 순간 1회 라벨 + 자체 디바운싱.
+            # 미검출 프레임에서도 update를 불러야 소실 안전 STOP이 동작한다.
+            now = time.time()
+            raw = tracker.update(dets, now) if self.gesture_enabled else None
+            if raw and self.controller:
+                self.controller.command(raw, "gesture")
+            if raw:
+                self._last_event, self._last_event_ts = raw, now
+            committed = (self._last_event
+                         if now - self._last_event_ts < EVENT_HUD_SEC else None)
+            draw_motion_debug(frame, tracker)
+            draw_hud(frame, committed, None, 0, self.hold, score)
+        else:
+            raw = None
+            if dets and self.gesture_enabled:
+                best = max(dets, key=lambda d: d["score"])
+                raw = prof.classify(best["keypoints"])
+            committed = self.stabilizer.update(raw)
+            # fire a curtain command only when the committed gesture changes
+            if committed and committed != self._committed and self.controller:
+                self.controller.command(committed, "gesture")
+            self._committed = committed
+            # top-centre HUD: gesture + confirm counter (N/hold) + confidence
+            draw_hud(frame, committed, self.stabilizer.candidate,
+                     self.stabilizer.count, self.hold, score)
 
         self.stats = {"infer_ms": round(infer_ms, 1), "count": len(dets),
                       "raw": raw, "gesture": committed, "score": round(score, 2)}

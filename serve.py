@@ -23,7 +23,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 sys.path.insert(0, "src")
 
 from camera import isp_gst_pipeline                       # noqa: E402
-from draw import draw_detections, draw_fps, draw_gesture_banner  # noqa: E402
+from draw import (draw_detections, draw_fps, draw_gesture_banner,  # noqa: E402
+                  draw_motion_debug)
 from streaming import CameraThread, ProcessThread         # noqa: E402
 from gesture import GestureStabilizer, extended_fingers     # noqa: E402
 from profiles import get_profile                            # noqa: E402
@@ -108,7 +109,8 @@ def make_handler(process_thread):
 def parse_args():
     p = argparse.ArgumentParser(description="Low-latency web MJPEG stream")
     p.add_argument("--profile", default="hand_near",
-                   help="model profile: hand_near (근거리 손) | body_far (원거리 전신)")
+                   help="model profile: hand_near (근거리 손) | body_far (원거리 팔포즈)"
+                        " | body_motion (원거리 손목 움직임)")
     p.add_argument("--model", default=None, help="override .rknn path (default: profile's)")
     p.add_argument("--no-model", action="store_true", help="camera only, no inference")
     p.add_argument("--device", default=None, help="Camera device (default ISP node)")
@@ -149,11 +151,24 @@ def main():
     # Gesture recognition: classify the most confident detection each frame
     # (using the active profile's classifier), debounce, draw Korean banner.
     stabilizer = GestureStabilizer(hold=5)
+    tracker = profile.make_classifier() if profile.make_classifier else None
+    last_event = {"label": None, "ts": 0.0}   # 이벤트형: 배너 유지 표시용
     is_hand = profile.num_keypoints == 21
 
     def draw_with_gesture(frame, dets):
         draw_detections(frame, dets, skeleton=profile.skeleton,
                         highlight=profile.highlight, label=profile.name)
+        if tracker is not None:               # 이벤트형(손목 움직임) 분류기
+            now = time.time()
+            evt = tracker.update(dets, now)
+            if evt:
+                last_event["label"], last_event["ts"] = evt, now
+            if args.debug:
+                draw_motion_debug(frame, tracker)
+            shown = (last_event["label"]
+                     if now - last_event["ts"] < 2.0 else None)
+            draw_gesture_banner(frame, shown)
+            return
         label = None
         if dets:
             best = max(dets, key=lambda d: d["score"])

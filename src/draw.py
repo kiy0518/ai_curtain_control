@@ -116,3 +116,26 @@ def draw_fps(frame, fps):
     cv2.putText(frame, f"{fps:.1f} FPS", (8, 22),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.7, (50, 255, 50), 2, cv2.LINE_AA)
     return frame
+
+
+def draw_motion_debug(frame, tracker):
+    """움직임 제스처(body_motion) 디버그: 손목 궤적 트레일 + 추적 상태.
+
+    ``tracker``는 gesture_motion.WristMotionClassifier — ``trail``(픽셀 좌표
+    리스트)과 ``status``(ASCII 문자열)만 사용하므로 느슨하게 결합된다.
+    """
+    trail = getattr(tracker, "trail", [])
+    n = len(trail)
+    for i in range(1, n):
+        # 오래된 점일수록 어둡게 — 진행 방향이 한눈에 보이도록
+        c = int(90 + 165 * i / n)
+        cv2.line(frame, trail[i - 1], trail[i], (0, c, c), 3, cv2.LINE_AA)
+    if trail:
+        cv2.circle(frame, trail[-1], 7, (0, 80, 255), -1, cv2.LINE_AA)
+
+    status = getattr(tracker, "status", "")
+    if status:
+        cv2.putText(frame, status, (8, frame.shape[0] - 12),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2,
+                    cv2.LINE_AA)
+    return frame

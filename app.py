@@ -9,7 +9,8 @@ standard library (no FastAPI dependency). Features:
 Open http://<board-ip>:8080
 
     python3 app.py --profile hand_near        # 근거리 손 (기본)
-    python3 app.py --profile body_far         # 원거리 전신
+    python3 app.py --profile body_far         # 원거리 전신 팔 포즈
+    python3 app.py --profile body_motion      # 원거리 손목 움직임(쓸기/멈춤)
 """
 
 import argparse
@@ -649,7 +650,7 @@ def parse_args():
     # defaults from config.env (CURTAIN_*) when present; flags override
     p = argparse.ArgumentParser(description="AI Curtain Control dashboard")
     p.add_argument("--profile", default=_env("CURTAIN_PROFILE", "hand_near"),
-                   help="hand_near | body_far")
+                   help="hand_near | body_far | body_motion")
     p.add_argument("--conf", type=float, default=float(_env("CURTAIN_CONF", "0.3")))
     p.add_argument("--width", type=int, default=int(_env("CURTAIN_WIDTH", "1280")))
     p.add_argument("--height", type=int, default=int(_env("CURTAIN_HEIGHT", "720")))

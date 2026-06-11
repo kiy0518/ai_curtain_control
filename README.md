@@ -56,7 +56,8 @@ ai_curtain_control/
 cd ~/Documents/ai_curtain_control
 bash deploy/install.sh          # 최초 1회: opencv·cloudflared·config.env
 python3 app.py                  # 프로파일/포트 등은 config.env 로 조정
-python3 app.py --profile body_far   # 또는 플래그로 override
+python3 app.py --profile body_far     # 또는 플래그로 override
+python3 app.py --profile body_motion  # 원거리 손목 움직임(쓸기/멈춤)
 ```
 - 브라우저 **http://<board-ip>:8080** → **로그인**(기본 비밀번호 `admin`, 접속 후 변경).
 - 기능: 라이브 영상, 커튼 상태/제어(placeholder), **모델 런타임 전환**, 스케줄(시간·일출/일몰),
@@ -100,6 +101,21 @@ python3 serve.py --model models/hand_pose_640.rknn --imgsz 640 --conf 0.3 --debu
 | 오른팔 수평 | 열림 |
 | 왼팔 수평 | 닫힘 |
 | 양팔 X 교차 | 정지 |
+
+### 손목 움직임(body_motion) 제스처 — 원거리 (`src/gesture_motion.py`)
+손모양은 ~2m까지만 인식되므로, 원거리는 전신 모델의 **손목 궤적**으로 판정.
+어깨너비로 정규화해 거리 불변이며, 손을 **어깨 높이 이상** 들었을 때만 동작:
+
+| 동작 (사용자 기준) | 인식 |
+|------|------|
+| 손 들고 **우→좌 쓸기** | 열림 |
+| 손 들고 **좌→우 쓸기** | 닫힘 |
+| 손 들고 **~0.8초 멈춤 유지** (손바닥 들어 보이기) | 정지 |
+
+- 이벤트형 디바운싱: 확정 순간 1회 발행 + 1.5초 불응기.
+- **안전 기본값**: 열림/닫힘 직후 사람이 0.7초 이상 사라지면 자동 **정지**.
+- 좌우 기준은 `CURTAIN_GESTURE_MIRROR`(기본 1=사용자 거울 기준)로 반전 가능.
+- 단위테스트: `python3 -m unittest discover -s tests` (보드 불필요).
 
 - 한글 배너는 cv2가 한글을 못 그려서 **PIL + NotoSansCJK** 폰트로 렌더링.
 
