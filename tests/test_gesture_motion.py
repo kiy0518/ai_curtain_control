@@ -105,6 +105,17 @@ class SwipeTest(unittest.TestCase):
         events, _ = feed(c, np.linspace(300, 350, 12))   # 0.5*SW < SWIPE_DIST(0.8)
         self.assertEqual(events, [])
 
+    def test_set_swipe_dist_changes_threshold(self):
+        # 스와이프 길이를 0.4로 낮추면 0.5*SW 변위도 인식
+        c = WristMotionClassifier(mirror=True)
+        c.set_timing(swipe_dist=0.4)
+        ev, _ = feed(c, np.linspace(300, 350, 12))       # 0.5*SW > 0.4
+        self.assertEqual(ev, ["OPEN"])
+        # 기본(0.8)에서는 같은 변위가 인식되지 않음
+        c2 = WristMotionClassifier(mirror=True)
+        ev2, _ = feed(c2, np.linspace(300, 350, 12))
+        self.assertEqual(ev2, [])
+
     def test_diagonal_motion_does_not_fire(self):
         # 수직 성분이 큰 움직임(팔 들어올리기 등)은 스와이프가 아님
         c = WristMotionClassifier(mirror=True)

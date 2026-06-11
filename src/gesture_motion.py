@@ -77,9 +77,10 @@ class WristMotionClassifier:
             mirror = os.environ.get(
                 MIRROR_ENV, "1" if MIRROR_DEFAULT else "0") != "0"
         self.mirror = mirror
-        # 런타임 조정 가능: X 정지 유지 시간 / 명령 후 불응 시간 (대시보드 설정)
+        # 런타임 조정: X 정지 유지 시간 / 불응 시간 / 스와이프 길이 (대시보드 설정)
         self.hold_sec = HOLD_SEC
         self.refractory_sec = REFRACTORY_SEC
+        self.swipe_dist = SWIPE_DIST
         self.set_timing(hold_sec, refractory_sec)
         self._buf = deque()        # (t, nx, ny, px, py) — 정규화 + 픽셀 좌표
         self._box = None           # 추적 중인 person 박스 (동일인 고정용)
@@ -91,12 +92,14 @@ class WristMotionClassifier:
         self._ignore_until = 0.0
         self.status = "no person"  # 디버그 오버레이용 (cv2 렌더 가능한 ASCII)
 
-    def set_timing(self, hold_sec=None, refractory_sec=None):
-        """X 정지 유지 시간 / 불응 시간을 런타임에 조정."""
+    def set_timing(self, hold_sec=None, refractory_sec=None, swipe_dist=None):
+        """X 정지 유지 시간 / 불응 시간 / 스와이프 길이를 런타임에 조정."""
         if hold_sec:
             self.hold_sec = float(hold_sec)
         if refractory_sec:
             self.refractory_sec = float(refractory_sec)
+        if swipe_dist:
+            self.swipe_dist = float(swipe_dist)
 
     # --- 메인 엔트리 --------------------------------------------------------
     def update(self, dets, now):
@@ -232,7 +235,7 @@ class WristMotionClassifier:
         dx = win[-1][1] - win[0][1]
         dy = win[-1][2] - win[0][2]
         self.status = "tracking dx=%+.2f" % dx
-        if abs(dx) < SWIPE_DIST or abs(dx) <= SWIPE_AXIS_RATIO * abs(dy):
+        if abs(dx) < self.swipe_dist or abs(dx) <= SWIPE_AXIS_RATIO * abs(dy):
             return None
         # 영상 좌표 +x = 사용자 기준 우→좌 (카메라 영상은 미러링되지 않음)
         if self.mirror:

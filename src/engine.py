@@ -24,7 +24,8 @@ EVENT_HUD_SEC = 2.0    # 이벤트형 제스처를 HUD에 유지 표시하는 �
 
 class PoseEngine:
     def __init__(self, profile_name, conf=0.3, controller=None, hold=3, flip=False,
-                 motion_hold_sec=None, motion_refractory_sec=None, dyn_conf=True):
+                 motion_hold_sec=None, motion_refractory_sec=None,
+                 motion_swipe_dist=None, dyn_conf=True):
         self.conf = conf                       # full(가까운 큰 박스) 신뢰도 기준
         self.dyn_conf = bool(dyn_conf)         # 박스 크기 적응형(작을수록 관대)
         self.controller = controller
@@ -37,6 +38,8 @@ class PoseEngine:
         self.motion_refractory_sec = (float(motion_refractory_sec)
                                       if motion_refractory_sec
                                       else gesture_motion.REFRACTORY_SEC)
+        self.motion_swipe_dist = (float(motion_swipe_dist) if motion_swipe_dist
+                                  else gesture_motion.SWIPE_DIST)
         self.stabilizer = GestureStabilizer(hold=self.hold)
 
         self._lock = threading.Lock()
@@ -60,7 +63,8 @@ class PoseEngine:
                                     model_path=model_path)
         tracker = prof.make_classifier() if prof.make_classifier else None
         if tracker is not None and hasattr(tracker, "set_timing"):
-            tracker.set_timing(self.motion_hold_sec, self.motion_refractory_sec)
+            tracker.set_timing(self.motion_hold_sec, self.motion_refractory_sec,
+                               self.motion_swipe_dist)
         with self._lock:
             old, self.model, self.profile = self.model, new, prof
             self.tracker = tracker             # 상태 분류기는 스왑 시 새로 생성
@@ -113,16 +117,21 @@ class PoseEngine:
     def set_flip(self, on):
         self.flip = bool(on)
 
-    def set_motion_timing(self, hold_sec=None, refractory_sec=None):
-        """body_motion의 정지 유지 / 불응 시간을 런타임에 변경(설정/스왑에 보존)."""
+    def set_motion_timing(self, hold_sec=None, refractory_sec=None,
+                          swipe_dist=None):
+        """body_motion의 정지 유지 / 불응 시간 / 스와이프 길이를 런타임에 변경
+        (설정/프로파일 스왑에 보존)."""
         with self._lock:
             if hold_sec is not None:
                 self.motion_hold_sec = float(hold_sec)
             if refractory_sec is not None:
                 self.motion_refractory_sec = float(refractory_sec)
+            if swipe_dist is not None:
+                self.motion_swipe_dist = float(swipe_dist)
             if self.tracker is not None and hasattr(self.tracker, "set_timing"):
                 self.tracker.set_timing(self.motion_hold_sec,
-                                        self.motion_refractory_sec)
+                                        self.motion_refractory_sec,
+                                        self.motion_swipe_dist)
 
     def _fire_event(self, label):
         self.gesture_event += 1
@@ -217,6 +226,7 @@ class PoseEngine:
             "flip": self.flip,
             "motion_hold_sec": round(self.motion_hold_sec, 1),
             "motion_refractory_sec": round(self.motion_refractory_sec, 1),
+            "motion_swipe_dist": round(self.motion_swipe_dist, 2),
             "event_seq": self.gesture_event,
             "event_label": self.gesture_event_label,
             **self.stats,
