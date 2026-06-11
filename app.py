@@ -141,6 +141,11 @@ DASHBOARD_HTML = """<!doctype html>
  .card{background:var(--sc);border-radius:24px;padding:20px;margin:14px 0}
  .card h3{margin:0 0 14px;font-size:15px;font-weight:600;color:var(--on-var)}
  img#cam{width:100%;border-radius:20px;display:block;background:#000;min-height:200px}
+ #fsbtn{position:absolute;top:18px;right:18px;width:42px;height:42px;border:0;border-radius:50%;
+   background:rgba(0,0,0,.55);color:#fff;font-size:20px;cursor:pointer;line-height:1}
+ #vidwrap:fullscreen{background:#000;display:flex;align-items:center;justify-content:center;padding:0}
+ #vidwrap:fullscreen img#cam{width:auto;height:auto;max-width:100%;max-height:100%;border-radius:0}
+ #vidwrap:-webkit-full-screen{background:#000;display:flex;align-items:center;justify-content:center;padding:0}
  .state{font-size:26px;font-weight:600;text-align:center;padding:6px 0 16px}
  .state b{color:var(--primary)}
  .ctl{display:flex;gap:12px}
@@ -194,7 +199,10 @@ DASHBOARD_HTML = """<!doctype html>
 <main>
  <div id="pwwarn" class="card" style="display:none;background:#4a2024;color:#F2B8B5">
    ⚠ 기본 비밀번호(admin) 사용 중입니다. 아래 관리자 설정에서 변경하세요.</div>
- <div class="card" style="padding:8px"><img id="cam" src="/stream.mjpg" alt="live"></div>
+ <div class="card" id="vidwrap" style="padding:8px;position:relative">
+   <img id="cam" src="/stream.mjpg" alt="live">
+   <button id="fsbtn" onclick="toggleFull()" title="전체화면">⛶</button>
+ </div>
 
  <div class="card">
    <div class="state">커튼 <b id="curtain">—</b></div>
@@ -274,6 +282,10 @@ DASHBOARD_HTML = """<!doctype html>
 </main>
 <script>
 const $=id=>document.getElementById(id);
+function toggleFull(){ const el=$('vidwrap');
+  const fs=document.fullscreenElement||document.webkitFullscreenElement;
+  if(!fs){ (el.requestFullscreen||el.webkitRequestFullscreen||(()=>{})).call(el); }
+  else { (document.exitFullscreen||document.webkitExitFullscreen||(()=>{})).call(document); } }
 let _tt; function toast(m){const t=$('toast');t.textContent=m;t.classList.add('show');
   clearTimeout(_tt);_tt=setTimeout(()=>t.classList.remove('show'),1500);}
 const KR={OPEN:'열림',CLOSE:'닫힘',STOP:'정지'};
