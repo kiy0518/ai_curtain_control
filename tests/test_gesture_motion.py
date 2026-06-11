@@ -81,7 +81,7 @@ class SwipeTest(unittest.TestCase):
 
     def test_short_swipe_does_not_fire(self):
         c = WristMotionClassifier(mirror=True)
-        events, _ = feed(c, np.linspace(300, 380, 12))   # 0.8*SW < SWIPE_DIST
+        events, _ = feed(c, np.linspace(300, 350, 12))   # 0.5*SW < SWIPE_DIST(0.8)
         self.assertEqual(events, [])
 
     def test_diagonal_motion_does_not_fire(self):
