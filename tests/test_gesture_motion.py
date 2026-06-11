@@ -24,12 +24,17 @@ RAISED_Y = SH_Y - 20.0   # 어깨 위로 든 손목 높이
 DT = 0.05           # 프레임 간격(20FPS 가정)
 
 
-def det(wx, wy, wrist="r", score=0.9, box=None, wrist_conf=0.8):
-    """전신 17키포인트 합성 디텍션 (어깨 2점 + 손목 1점만 유효)."""
+HOLD = gm.HOLD_SEC + 0.4   # 정지 판정에 충분한 유지 시간(상수 변경에 자동 추종)
+
+
+def det(wx, wy, wrist="r", score=0.9, box=None, wrist_conf=0.8, nose=None):
+    """전신 17키포인트 합성 디텍션 (어깨 2점 + 손목 1점 + 선택적 코)."""
     kp = np.zeros((17, 3), np.float32)
     kp[gm.SH_L] = (CX - SW / 2, SH_Y, 0.9)
     kp[gm.SH_R] = (CX + SW / 2, SH_Y, 0.9)
     kp[gm.WR_R if wrist == "r" else gm.WR_L] = (wx, wy, wrist_conf)
+    if nose is not None:
+        kp[gm.NOSE] = (nose[0], nose[1], 0.9)
     if box is None:
         box = (CX - 100, SH_Y - 80, CX + 100, SH_Y + 250)
     return {"box": np.array(box, np.float32), "score": score, "keypoints": kp}
@@ -115,21 +120,36 @@ class SwipeTest(unittest.TestCase):
 class HoldStopTest(unittest.TestCase):
     def test_raise_and_hold_is_stop(self):
         c = WristMotionClassifier(mirror=True)
-        events, _ = hold(c, CX + 30, 1.2, t0=0.0)
+        events, _ = hold(c, CX + 30, HOLD, t0=0.0)
         self.assertEqual(events, ["STOP"])
+
+    def test_brief_pause_before_swipe_is_not_stop(self):
+        # 손 올리고 0.6초 멈칫 후 스와이프 → STOP이 먼저 나면 안 됨 (열기/닫기 우선)
+        c = WristMotionClassifier(mirror=True)
+        ev1, t = hold(c, 200.0, 0.6, t0=0.0)                     # 들고 잠깐 멈칫
+        ev2, _ = feed(c, np.linspace(200, 440, 12), t0=t)        # 이어서 우→좌 스와이프
+        self.assertEqual(ev1, [])                                # 멈칫은 STOP 아님
+        self.assertEqual(ev2, ["OPEN"])
 
     def test_continued_hold_does_not_repeat_stop(self):
         c = WristMotionClassifier(mirror=True)
-        ev1, t = hold(c, CX + 30, 1.2, t0=0.0)                   # STOP
+        ev1, t = hold(c, CX + 30, HOLD, t0=0.0)                  # STOP
         ev2, _ = hold(c, CX + 30, 3.0, t0=t)                     # 계속 유지
         self.assertEqual(ev1, ["STOP"])
         self.assertEqual(ev2, [])                # 재무장 전엔 반복 발행 금지
 
+    def test_hand_at_face_is_not_stop(self):
+        # 눈 비비기 등 손목이 코(얼굴) 근처면 들고 멈춰도 STOP 제외
+        c = WristMotionClassifier(mirror=True)
+        events, _ = hold(c, CX + 5, HOLD + 0.5, t0=0.0,
+                         wy=RAISED_Y, nose=(CX, RAISED_Y))
+        self.assertEqual(events, [])
+
     def test_lower_and_raise_rearms_stop(self):
         c = WristMotionClassifier(mirror=True)
-        ev1, t = hold(c, CX + 30, 1.2, t0=0.0)                   # STOP
+        ev1, t = hold(c, CX + 30, HOLD, t0=0.0)                  # STOP
         ev2, t = hold(c, CX + 30, 1.0, t0=t, wy=SH_Y + 200.0)    # 손 내림(미인정)
-        ev3, t = hold(c, CX + 30, 1.0, t0=t)                     # 다시 들고 유지
+        ev3, t = hold(c, CX + 30, HOLD, t0=t)                    # 다시 들고 유지
         self.assertEqual(ev1, ["STOP"])
         self.assertEqual(ev2, [])
         self.assertEqual(ev3, ["STOP"])
@@ -162,7 +182,7 @@ class SafetyTest(unittest.TestCase):
 
     def test_person_lost_after_stop_is_silent(self):
         c = WristMotionClassifier(mirror=True)
-        ev1, t = hold(c, CX + 30, 1.2, t0=0.0)                   # STOP(정지 상태)
+        ev1, t = hold(c, CX + 30, HOLD, t0=0.0)                  # STOP(정지 상태)
         events = []
         for _ in range(30):
             e = c.update([], t)
