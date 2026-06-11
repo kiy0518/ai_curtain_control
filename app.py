@@ -306,8 +306,11 @@ function beep(freqs,dur=0.13){ if(!_snd||!_ac)return; let t=_ac.currentTime;
     g.gain.exponentialRampToValueAtTime(0.0001,st+dur); o.start(st); o.stop(st+dur); }); }
 const BEEP={OPEN:[660,990],CLOSE:[660,440],STOP:[520,520,520]}; // 열림=상승,닫힘=하강,정지=3연
 function gestureBeep(l){ if(BEEP[l])beep(BEEP[l]); }
-function toggleSound(){ _snd=!_snd; localStorage.setItem('snd',_snd?'1':'0');
-  $('sndbtn').textContent=_snd?'🔊':'🔇'; _ensureAudio(); if(_snd)beep([880]); }
+function toggleSound(){ const first=!_ac; _ensureAudio();
+  // 첫 누름은 무조건 켜기(오디오 잠금해제+테스트음) — 그 뒤부터 정상 토글
+  _snd=first?true:!_snd; localStorage.setItem('snd',_snd?'1':'0');
+  $('sndbtn').textContent=_snd?'🔊':'🔇';
+  if(_snd){ if(_ac&&_ac.state==='suspended')_ac.resume().then(()=>beep([880])); else beep([880]); } }
 function toggleFull(){ const el=$('vidwrap');
   const fs=document.fullscreenElement||document.webkitFullscreenElement;
   if(!fs){ (el.requestFullscreen||el.webkitRequestFullscreen||(()=>{})).call(el); }
