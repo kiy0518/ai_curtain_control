@@ -259,9 +259,12 @@ DASHBOARD_HTML = """<!doctype html>
    <label>모델 / 프로파일 (런타임 전환)</label>
    <select id="profile" onchange="setModel()"></select>
    <div class="note" id="profdesc"></div>
-   <label>신뢰도(conf) — 0.05 ~ 0.95 (숫자 입력)</label>
+   <label>신뢰도(conf) — 0.05 ~ 0.95 (큰/가까운 박스 기준)</label>
    <input type="number" id="conf" min="0.05" max="0.95" step="0.05" inputmode="decimal"
           onchange="setConf()">
+   <label style="display:flex;align-items:center;gap:12px;margin-top:16px">적응형 신뢰도 (작은 박스=관대, 먼 손도 검출)
+     <span class="switch"><input type="checkbox" id="dyn" onchange="setDyn()"><span class="tr"></span><span class="kn"></span></span>
+   </label>
    <label>제스처 확정 카운트 — 연속 N회 (1~30, 손/팔 정적 제스처)</label>
    <input type="number" id="hold" min="1" max="30" step="1" inputmode="numeric"
           onchange="setHold()">
@@ -335,6 +338,7 @@ async function setConf(){ let v=parseFloat($('conf').value);
   if(isNaN(v)) return; v=Math.min(0.95,Math.max(0.05,v)); $('conf').value=v;
   await fetch('/api/settings',{method:'POST',body:JSON.stringify({conf:v})}); toast('신뢰도 저장됨 '+v.toFixed(2)); }
 async function setGest(){ await fetch('/api/settings',{method:'POST',body:JSON.stringify({gesture_enabled:$('gest').checked})}); toast('저장됨'); }
+async function setDyn(){ await fetch('/api/settings',{method:'POST',body:JSON.stringify({dyn_conf:$('dyn').checked})}); toast($('dyn').checked?'적응형 신뢰도 켜짐':'적응형 신뢰도 꺼짐'); }
 async function setFlip(){ await fetch('/api/settings',{method:'POST',body:JSON.stringify({flip:$('flip').checked})}); toast($('flip').checked?'좌우반전 켜짐':'좌우반전 꺼짐'); }
 async function setHold(){ let h=parseInt($('hold').value); if(isNaN(h))return; h=Math.min(30,Math.max(1,h)); $('hold').value=h;
   await fetch('/api/settings',{method:'POST',body:JSON.stringify({hold:h})}); toast('확정 카운트 '+h+'회 저장됨'); }
@@ -448,6 +452,7 @@ async function poll(){
      s.profiles.forEach(p=>{const o=document.createElement('option');o.value=p.name;o.textContent=p.name+' ('+p.num_keypoints+'kp '+p.imgsz+')';sel.appendChild(o);});
      sel.value=s.engine.profile;
      $('conf').value=(+s.engine.conf).toFixed(2);
+     $('dyn').checked=!!s.engine.dyn_conf;
      $('hold').value=s.engine.hold;
      if(s.engine.motion_hold_sec!=null) $('hold_sec').value=s.engine.motion_hold_sec;
      if(s.engine.motion_refractory_sec!=null) $('refr_sec').value=s.engine.motion_refractory_sec;
@@ -657,6 +662,10 @@ def make_handler(proc, engine, controller, remote, auth_enabled=True):
                     g = bool(data["gesture_enabled"])
                     engine.set_gesture_enabled(g)
                     store.set_setting("gesture_enabled", "1" if g else "0")
+                if "dyn_conf" in data:
+                    d = bool(data["dyn_conf"])
+                    engine.set_dyn_conf(d)
+                    store.set_setting("dyn_conf", "1" if d else "0")
                 if "hold" in data:
                     h = max(1, int(data["hold"]))
                     engine.set_hold(h)
@@ -755,7 +764,8 @@ def main():
     engine = PoseEngine(saved_profile, conf=saved_conf, controller=controller,
                         hold=saved_hold, flip=(store.get_setting("flip") == "1"),
                         motion_hold_sec=_fget("motion_hold_sec"),
-                        motion_refractory_sec=_fget("motion_refractory_sec"))
+                        motion_refractory_sec=_fget("motion_refractory_sec"),
+                        dyn_conf=(store.get_setting("dyn_conf") or "1") == "1")
     g = store.get_setting("gesture_enabled")
     if g is not None:
         engine.set_gesture_enabled(g == "1")

@@ -17,11 +17,18 @@ from draw import draw_detections, draw_hud, draw_motion_debug
 
 EVENT_HUD_SEC = 2.0    # 이벤트형 제스처를 HUD에 유지 표시하는 시간
 
+# 적응형 신뢰도(작은 박스=관대): 박스 높이가 프레임의 이 비율 이하면 floor conf,
+# 이상이면 full conf, 사이는 선형 보간. floor = conf * DYN_FLOOR_RATIO.
+DYN_FLOOR_RATIO = 0.4
+DYN_SMALL_H = 0.12     # 박스높이/프레임높이 ≤ 이 값 → 가장 관대(먼 손)
+DYN_BIG_H = 0.45       # ≥ 이 값 → full conf(가까운 큰 손)
+
 
 class PoseEngine:
     def __init__(self, profile_name, conf=0.3, controller=None, hold=3, flip=False,
-                 motion_hold_sec=None, motion_refractory_sec=None):
-        self.conf = conf
+                 motion_hold_sec=None, motion_refractory_sec=None, dyn_conf=True):
+        self.conf = conf                       # full(가까운 큰 박스) 신뢰도 기준
+        self.dyn_conf = bool(dyn_conf)         # 박스 크기 적응형(작을수록 관대)
         self.controller = controller
         self.gesture_enabled = True
         self.flip = bool(flip)                 # mirror video L-R (text stays normal)
@@ -51,7 +58,7 @@ class PoseEngine:
         """Load ``name``'s model and atomically swap it in. Slow (~0.5s);
         called from the HTTP thread. Raises on unknown/failed model."""
         prof = get_profile(name)
-        new = HandPose.from_profile(prof, conf_thres=self.conf,
+        new = HandPose.from_profile(prof, conf_thres=self._floor(),
                                     model_path=model_path)
         tracker = prof.make_classifier() if prof.make_classifier else None
         if tracker is not None and hasattr(tracker, "set_timing"):
@@ -66,11 +73,34 @@ class PoseEngine:
             old.release()
         return prof
 
+    def _floor(self):
+        """모델에 적용할 탐지 바닥 신뢰도. 적응형이면 conf보다 낮춰 작은(먼)
+        박스도 디코드에서 살아남게 하고, 크기별 최종 판정은 _size_filter가 한다."""
+        return self.conf * DYN_FLOOR_RATIO if self.dyn_conf else self.conf
+
+    def _size_filter(self, dets, frame_h):
+        """박스 높이가 클수록 더 높은 신뢰도를 요구(작을수록 관대)."""
+        floor, span = self._floor(), self.conf - self._floor()
+        kept = []
+        for d in dets:
+            h_frac = (float(d["box"][3]) - float(d["box"][1])) / max(1, frame_h)
+            t = (h_frac - DYN_SMALL_H) / (DYN_BIG_H - DYN_SMALL_H)
+            t = 0.0 if t < 0 else 1.0 if t > 1 else t
+            if d["score"] >= floor + span * t:
+                kept.append(d)
+        return kept
+
     def set_conf(self, conf):
         with self._lock:
             self.conf = conf
             if self.model is not None:
-                self.model.conf_thres = conf
+                self.model.conf_thres = self._floor()
+
+    def set_dyn_conf(self, on):
+        with self._lock:
+            self.dyn_conf = bool(on)
+            if self.model is not None:
+                self.model.conf_thres = self._floor()
 
     def set_gesture_enabled(self, enabled):
         self.gesture_enabled = bool(enabled)
@@ -124,6 +154,9 @@ class PoseEngine:
             dets = self.model.infer(frame)
             infer_ms = (time.time() - t) * 1000.0
 
+        if self.dyn_conf:
+            dets = self._size_filter(dets, frame.shape[0])
+
         draw_detections(frame, dets, skeleton=prof.skeleton,
                         highlight=prof.highlight, label=prof.name)
 
@@ -173,6 +206,7 @@ class PoseEngine:
             "imgsz": prof.imgsz,
             "num_keypoints": prof.num_keypoints,
             "conf": self.conf,
+            "dyn_conf": self.dyn_conf,
             "gesture_enabled": self.gesture_enabled,
             "hold": self.hold,
             "flip": self.flip,
