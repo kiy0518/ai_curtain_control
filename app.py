@@ -274,8 +274,11 @@ DASHBOARD_HTML = """<!doctype html>
    <label>명령 후 대기(불응) 시간 — 다음 명령까지 무시할 초 (0.3~5)</label>
    <input type="number" id="refr_sec" min="0.3" max="5" step="0.1" inputmode="decimal"
           onchange="setMotion()">
-   <label>스와이프 길이 — 어깨너비의 몇 배만큼 쓸어야 인식 (0.3~2.0)</label>
+   <label>스와이프 길이 — 어깨너비의 몇 배만큼 쓸어야 인식 (body_motion, 0.3~2.0)</label>
    <input type="number" id="swipe_dist" min="0.3" max="2" step="0.1" inputmode="decimal"
+          onchange="setMotion()">
+   <label>팔 뻗는 거리 — 어깨너비의 몇 배 펴야 인식 (body_far 팔 수평, 0.3~1.5)</label>
+   <input type="number" id="arm_extend" min="0.3" max="1.5" step="0.1" inputmode="decimal"
           onchange="setMotion()">
    <label style="display:flex;align-items:center;gap:12px;margin-top:16px">제스처 인식 사용
      <span class="switch"><input type="checkbox" id="gest" onchange="setGest()"><span class="tr"></span><span class="kn"></span></span>
@@ -350,6 +353,8 @@ async function setMotion(){ const b={};
   if(!isNaN(hs)){hs=Math.min(4,Math.max(0.5,hs)); $('hold_sec').value=hs; b.motion_hold_sec=hs;}
   if(!isNaN(rs)){rs=Math.min(5,Math.max(0.3,rs)); $('refr_sec').value=rs; b.motion_refractory_sec=rs;}
   if(!isNaN(sd)){sd=Math.min(2,Math.max(0.3,sd)); $('swipe_dist').value=sd; b.motion_swipe_dist=sd;}
+  let ae=parseFloat($('arm_extend').value);
+  if(!isNaN(ae)){ae=Math.min(1.5,Math.max(0.3,ae)); $('arm_extend').value=ae; b.arm_extend=ae;}
   if(!Object.keys(b).length)return;
   await fetch('/api/settings',{method:'POST',body:JSON.stringify(b)});
   toast('움직임 설정 저장됨 (정지 '+$('hold_sec').value+'s / 대기 '+$('refr_sec').value+'s / 스와이프 '+$('swipe_dist').value+')'); }
@@ -461,6 +466,7 @@ async function poll(){
      if(s.engine.motion_hold_sec!=null) $('hold_sec').value=s.engine.motion_hold_sec;
      if(s.engine.motion_refractory_sec!=null) $('refr_sec').value=s.engine.motion_refractory_sec;
      if(s.engine.motion_swipe_dist!=null) $('swipe_dist').value=s.engine.motion_swipe_dist;
+     if(s.engine.arm_extend!=null) $('arm_extend').value=s.engine.arm_extend;
      $('gest').checked=s.engine.gesture_enabled;
      $('flip').checked=!!s.engine.flip;
      if(s.location){$('lat').value=s.location.lat||''; $('lon').value=s.location.lon||'';}
@@ -691,6 +697,10 @@ def make_handler(proc, engine, controller, remote, auth_enabled=True):
                     v = min(2.0, max(0.3, float(data["motion_swipe_dist"])))
                     engine.set_motion_timing(swipe_dist=v)
                     store.set_setting("motion_swipe_dist", v)
+                if "arm_extend" in data:
+                    v = min(1.5, max(0.3, float(data["arm_extend"])))
+                    engine.set_arm_extend(v)
+                    store.set_setting("arm_extend", v)
                 if "lat" in data:
                     store.set_setting("lat", float(data["lat"]))
                 if "lon" in data:
@@ -775,6 +785,7 @@ def main():
                         motion_hold_sec=_fget("motion_hold_sec"),
                         motion_refractory_sec=_fget("motion_refractory_sec"),
                         motion_swipe_dist=_fget("motion_swipe_dist"),
+                        arm_extend=_fget("arm_extend"),
                         dyn_conf=(store.get_setting("dyn_conf") or "1") == "1")
     g = store.get_setting("gesture_enabled")
     if g is not None:
