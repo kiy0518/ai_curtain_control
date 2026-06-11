@@ -267,6 +267,9 @@ DASHBOARD_HTML = """<!doctype html>
    <label style="display:flex;align-items:center;gap:12px;margin-top:16px">제스처 인식 사용
      <span class="switch"><input type="checkbox" id="gest" onchange="setGest()"><span class="tr"></span><span class="kn"></span></span>
    </label>
+   <label style="display:flex;align-items:center;gap:12px;margin-top:16px">영상 좌우반전 (거울)
+     <span class="switch"><input type="checkbox" id="flip" onchange="setFlip()"><span class="tr"></span><span class="kn"></span></span>
+   </label>
    <label>위치(일출/일몰 계산용) — 지도를 클릭/드래그하면 자동 저장</label>
    <div id="map"></div>
    <div class="grid2">
@@ -307,6 +310,7 @@ async function setConf(){ let v=parseFloat($('conf').value);
   if(isNaN(v)) return; v=Math.min(0.95,Math.max(0.05,v)); $('conf').value=v;
   await fetch('/api/settings',{method:'POST',body:JSON.stringify({conf:v})}); toast('신뢰도 저장됨 '+v.toFixed(2)); }
 async function setGest(){ await fetch('/api/settings',{method:'POST',body:JSON.stringify({gesture_enabled:$('gest').checked})}); toast('저장됨'); }
+async function setFlip(){ await fetch('/api/settings',{method:'POST',body:JSON.stringify({flip:$('flip').checked})}); toast($('flip').checked?'좌우반전 켜짐':'좌우반전 꺼짐'); }
 async function setHold(){ let h=parseInt($('hold').value); if(isNaN(h))return; h=Math.min(30,Math.max(1,h)); $('hold').value=h;
   await fetch('/api/settings',{method:'POST',body:JSON.stringify({hold:h})}); toast('확정 카운트 '+h+'회 저장됨'); }
 async function saveLoc(){ const lat=parseFloat($('lat').value),lon=parseFloat($('lon').value);
@@ -410,6 +414,7 @@ async function poll(){
      $('conf').value=(+s.engine.conf).toFixed(2);
      $('hold').value=s.engine.hold;
      $('gest').checked=s.engine.gesture_enabled;
+     $('flip').checked=!!s.engine.flip;
      if(s.location){$('lat').value=s.location.lat||''; $('lon').value=s.location.lon||'';}
      profilesLoaded=true;
    }
@@ -617,6 +622,10 @@ def make_handler(proc, engine, controller, remote, auth_enabled=True):
                     h = max(1, int(data["hold"]))
                     engine.set_hold(h)
                     store.set_setting("hold", h)
+                if "flip" in data:
+                    f = bool(data["flip"])
+                    engine.set_flip(f)
+                    store.set_setting("flip", "1" if f else "0")
                 if "lat" in data:
                     store.set_setting("lat", float(data["lat"]))
                 if "lon" in data:
@@ -691,7 +700,7 @@ def main():
     except (TypeError, ValueError):
         saved_hold = 3
     engine = PoseEngine(saved_profile, conf=saved_conf, controller=controller,
-                        hold=saved_hold)
+                        hold=saved_hold, flip=(store.get_setting("flip") == "1"))
     g = store.get_setting("gesture_enabled")
     if g is not None:
         engine.set_gesture_enabled(g == "1")

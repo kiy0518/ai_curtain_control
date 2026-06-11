@@ -7,6 +7,8 @@ process thread calls ``process``.
 import threading
 import time
 
+import cv2
+
 from profiles import get_profile, PROFILES
 from hand_pose import HandPose
 from gesture import GestureStabilizer
@@ -16,10 +18,11 @@ EVENT_HUD_SEC = 2.0    # 이벤트형 제스처를 HUD에 유지 표시하는 �
 
 
 class PoseEngine:
-    def __init__(self, profile_name, conf=0.3, controller=None, hold=3):
+    def __init__(self, profile_name, conf=0.3, controller=None, hold=3, flip=False):
         self.conf = conf
         self.controller = controller
         self.gesture_enabled = True
+        self.flip = bool(flip)                 # mirror video L-R (text stays normal)
         self.hold = max(1, int(hold))          # consecutive frames to confirm
         self.stabilizer = GestureStabilizer(hold=self.hold)
 
@@ -60,6 +63,9 @@ class PoseEngine:
     def set_gesture_enabled(self, enabled):
         self.gesture_enabled = bool(enabled)
 
+    def set_flip(self, on):
+        self.flip = bool(on)
+
     def set_hold(self, hold):
         """Set the consecutive-frame count needed to confirm a gesture."""
         with self._lock:
@@ -81,6 +87,10 @@ class PoseEngine:
         with self._lock:
             if self.model is None:
                 return frame
+            # Mirror BEFORE inference/drawing so keypoints/boxes/HUD align and
+            # the text (drawn afterwards) stays readable (not mirrored).
+            if self.flip:
+                frame[:] = cv2.flip(frame, 1)
             prof = self.profile
             tracker = self.tracker
             t = time.time()
@@ -135,6 +145,7 @@ class PoseEngine:
             "conf": self.conf,
             "gesture_enabled": self.gesture_enabled,
             "hold": self.hold,
+            "flip": self.flip,
             **self.stats,
         }
 
