@@ -54,7 +54,7 @@ PROFILES = {
         skeleton=constants.BODY_SKELETON,
         highlight=[9, 10],          # wrists
         classify=gesture_body.classify,
-        desc="원거리 전신 팔 제스처: 양팔위=열림 / 가슴앞교차=닫힘 / 한팔수평=정지",
+        desc="원거리 전신 팔 제스처: 오른팔수평=열림 / 왼팔수평=닫힘 / X교차=정지",
     ),
 }
 

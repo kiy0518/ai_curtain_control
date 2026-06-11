@@ -97,9 +97,9 @@ python3 serve.py --model models/hand_pose_640.rknn --imgsz 640 --conf 0.3 --debu
 ### 전신(body_far) 제스처 — 원거리
 | 자세 | 인식 |
 |------|------|
-| 🙌 양팔 위로 | 열림 |
-| 🤚 양팔 가슴 앞 교차 | 닫힘 |
-| 🙆 한 팔 수평(T) | 정지 |
+| 오른팔 수평 | 열림 |
+| 왼팔 수평 | 닫힘 |
+| 양팔 X 교차 | 정지 |
 
 - 한글 배너는 cv2가 한글을 못 그려서 **PIL + NotoSansCJK** 폰트로 렌더링.
 

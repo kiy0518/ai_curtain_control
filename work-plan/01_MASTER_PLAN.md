@@ -104,6 +104,12 @@
 - [ ] BLE 본딩(페어링) 보안, 자동 재연결
 - [ ] Android APK 빌드
 
+### Phase 8 — 온디바이스 AI: 데이터분석 + 음성인식 (v1.2.0)  ☞ `11_ONDEVICE_LLM_VOICE.md`
+> 클라우드 미사용(사용료 비추) → 보드 온디바이스 전용.
+- [ ] 음성 인식(오프라인 STT: vosk/sherpa) + 웨이크워드 → 음성 커튼 제어
+- [ ] 사용 이력 분석(규칙/통계 → 필요시 RKLLM 소형) → 맞춤 스케줄 추천
+- [ ] 마이크 하드웨어, 비전↔음성/LLM 자원 스케줄링
+
 ---
 
 ## 4. 버전 관리 정책
@@ -139,5 +145,7 @@ git push origin v0.2.0
 | 저장 | SQLite (설정·스케줄·프로파일·이력) — 스키마는 `04_*` 데이터모델 절 |
 | 리모컨 앱 | **Flutter**(Material 3) + **BLE**(`flutter_blue_plus`) |
 | BLE 서버(보드) | BlueZ + Python(`bless`/`bluezero`) GATT 주변장치 |
+| 음성(STT) | 오프라인 — vosk/sherpa-onnx/whisper.cpp + 웨이크워드 (클라우드 X) |
+| 온디바이스 LLM | RKLLM(NPU) 소형(Gemma 3n E2B/Qwen2.5-1.5B), 온디맨드 (클라우드 X) |
 
 > **조기 결정 필요**: **단일 계정 vs 다중 계정** — SQLite 스키마·인증(`07_*`)·개인화(`05_*`)에 영향.
