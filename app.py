@@ -90,6 +90,8 @@ DASHBOARD_HTML = """<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
 <meta name="theme-color" content="#141218">
 <link rel="manifest" href="/manifest.json">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <title>AI 커튼 제어</title>
 <style>
  /* Material 3 (dark) tokens */
@@ -150,6 +152,8 @@ DASHBOARD_HTML = """<!doctype html>
  details summary{cursor:pointer;color:var(--on-var);font-weight:600;list-style:none}
  details summary::-webkit-details-marker{display:none}
  .grid2{display:flex;gap:12px} .grid2>*{flex:1}
+ #map{height:260px;border-radius:12px;margin:8px 0;background:#2B2930}
+ .leaflet-container{background:#2B2930}
  #toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%) translateY(20px);
    background:var(--sec-c);color:var(--on-sec-c);padding:12px 20px;border-radius:100px;
    font-size:14px;opacity:0;transition:.25s;pointer-events:none;z-index:99}
@@ -214,7 +218,7 @@ DASHBOARD_HTML = """<!doctype html>
    <div class="kv"><span>load / 메모리 / 온도</span><b id="sys">—</b></div>
  </div>
 
- <details class="card"><summary>⚙️ 관리자 설정</summary>
+ <details class="card" id="adminbox"><summary>⚙️ 관리자 설정</summary>
    <label>모델 / 프로파일 (런타임 전환)</label>
    <select id="profile" onchange="setModel()"></select>
    <div class="note" id="profdesc"></div>
@@ -227,12 +231,12 @@ DASHBOARD_HTML = """<!doctype html>
    <label style="display:flex;align-items:center;gap:12px;margin-top:16px">제스처 인식 사용
      <span class="switch"><input type="checkbox" id="gest" onchange="setGest()"><span class="tr"></span><span class="kn"></span></span>
    </label>
-   <label>위치(일출/일몰 계산용)</label>
+   <label>위치(일출/일몰 계산용) — 지도를 클릭/드래그하면 자동 저장</label>
+   <div id="map"></div>
    <div class="grid2">
-     <input type="number" id="lat" step="0.0001" placeholder="위도">
-     <input type="number" id="lon" step="0.0001" placeholder="경도">
+     <input type="number" id="lat" step="0.0001" placeholder="위도" onchange="onLatLon()">
+     <input type="number" id="lon" step="0.0001" placeholder="경도" onchange="onLatLon()">
    </div>
-   <div style="margin-top:12px"><button class="btn tonal" onclick="saveLoc()">위치 저장</button></div>
    <label>비밀번호 변경</label>
    <input type="password" id="pw_old" placeholder="현재 비밀번호">
    <input type="password" id="pw_new" placeholder="새 비밀번호(4자 이상)" style="margin-top:8px">
@@ -264,7 +268,24 @@ async function setConf(){ let v=parseFloat($('conf').value);
 async function setGest(){ await fetch('/api/settings',{method:'POST',body:JSON.stringify({gesture_enabled:$('gest').checked})}); toast('저장됨'); }
 async function setHold(){ let h=parseInt($('hold').value); if(isNaN(h))return; h=Math.min(30,Math.max(1,h)); $('hold').value=h;
   await fetch('/api/settings',{method:'POST',body:JSON.stringify({hold:h})}); toast('확정 카운트 '+h+'회 저장됨'); }
-async function saveLoc(){ await fetch('/api/settings',{method:'POST',body:JSON.stringify({lat:parseFloat($('lat').value),lon:parseFloat($('lon').value)})}); toast('위치 저장됨'); }
+async function saveLoc(){ const lat=parseFloat($('lat').value),lon=parseFloat($('lon').value);
+  if(isNaN(lat)||isNaN(lon))return;
+  await fetch('/api/settings',{method:'POST',body:JSON.stringify({lat,lon})}); toast('위치 저장됨'); }
+let _map,_marker;
+function initMap(lat,lon){
+  if(_map||typeof L==='undefined'||!$('map'))return;
+  _map=L.map('map').setView([lat,lon],14);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap'}).addTo(_map);
+  _marker=L.marker([lat,lon],{draggable:true}).addTo(_map);
+  const pick=ll=>{$('lat').value=ll.lat.toFixed(4);$('lon').value=ll.lng.toFixed(4);saveLoc();};
+  _map.on('click',e=>{_marker.setLatLng(e.latlng);pick(e.latlng);});
+  _marker.on('dragend',()=>pick(_marker.getLatLng()));
+}
+function onLatLon(){ const lat=parseFloat($('lat').value),lon=parseFloat($('lon').value);
+  if(_map&&!isNaN(lat)&&!isNaN(lon)){_marker.setLatLng([lat,lon]);_map.setView([lat,lon]);} saveLoc(); }
+const _ab=$('adminbox'); if(_ab) _ab.addEventListener('toggle',e=>{ if(e.target.open){
+  initMap(parseFloat($('lat').value)||37.5665, parseFloat($('lon').value)||126.978);
+  setTimeout(()=>_map&&_map.invalidateSize(),120); }});
 async function setRemote(){ const en=$('rem').checked; $('remurl').textContent=en?'터널 생성중… (몇 초)':'';
   await fetch('/api/remote',{method:'POST',body:JSON.stringify({enable:en})}); }
 async function logout(){ await fetch('/api/logout',{method:'POST'}); location.href='/login'; }
@@ -383,7 +404,7 @@ MANIFEST = json.dumps({
 SW_JS = "self.addEventListener('fetch',()=>{});"   # minimal (enables install)
 
 
-def make_handler(proc, engine, controller, remote):
+def make_handler(proc, engine, controller, remote, auth_enabled=True):
     class H(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
 
@@ -416,7 +437,7 @@ def make_handler(proc, engine, controller, remote):
             return c["session"].value if "session" in c else None
 
         def _authed(self):
-            return auth.valid(self._token())
+            return (not auth_enabled) or auth.valid(self._token())
 
         def do_GET(self):
             # public (no auth): login page, PWA assets
@@ -582,6 +603,9 @@ def parse_args():
     p.add_argument("--ble", action="store_true",
                    default=_env("CURTAIN_BLE", "") == "1",
                    help="start the BLE remote peripheral (Flutter app control)")
+    p.add_argument("--no-auth", action="store_true",
+                   default=_env("CURTAIN_AUTH", "1") == "0",
+                   help="disable login (development convenience)")
     return p.parse_args()
 
 
@@ -633,8 +657,11 @@ def main():
     cam.start()
     proc.start()
 
+    if args.no_auth:
+        log.warning("로그인 비활성화 (개발용) — 인증 없이 접근 가능")
     server = ThreadingHTTPServer((args.host, args.port),
-                                 make_handler(proc, engine, controller, remote))
+                                 make_handler(proc, engine, controller, remote,
+                                              auth_enabled=not args.no_auth))
     log.info("dashboard ready: http://<board-ip>:%d", args.port)
     print(f"\n  ▶ 대시보드 →  http://<board-ip>:{args.port}   (Ctrl+C 종료)\n")
     try:
