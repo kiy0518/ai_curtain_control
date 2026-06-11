@@ -18,7 +18,9 @@ import logging
 import logging.handlers
 import os
 import sys
+import threading
 import time
+import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 sys.path.insert(0, "src")
@@ -52,6 +54,31 @@ from scheduler import SchedulerThread              # noqa: E402
 from remote import RemoteManager                   # noqa: E402
 import auth                                         # noqa: E402
 from http.cookies import SimpleCookie              # noqa: E402
+
+
+def geoip():
+    """Approximate location from the board's public IP (ip-api, no API key)."""
+    try:
+        url = "http://ip-api.com/json/?fields=status,lat,lon,city"
+        with urllib.request.urlopen(url, timeout=5) as r:
+            d = json.load(r)
+        if d.get("status") == "success":
+            return {"lat": d["lat"], "lon": d["lon"], "city": d.get("city")}
+    except Exception:
+        pass
+    return None
+
+
+def autodetect_location():
+    """If no location saved yet, set it from IP geolocation (background)."""
+    if store.get_setting("lat"):
+        return
+    g = geoip()
+    if g:
+        store.set_setting("lat", g["lat"])
+        store.set_setting("lon", g["lon"])
+        log.info("위치 자동감지(IP): %s (%.4f, %.4f)",
+                 g.get("city"), g["lat"], g["lon"])
 
 
 # --- small system-info helper (no psutil dependency) -----------------------
@@ -237,6 +264,7 @@ DASHBOARD_HTML = """<!doctype html>
      <input type="number" id="lat" step="0.0001" placeholder="위도" onchange="onLatLon()">
      <input type="number" id="lon" step="0.0001" placeholder="경도" onchange="onLatLon()">
    </div>
+   <div style="margin-top:10px"><button class="btn tonal" onclick="useGPS()">📍 내 위치 (GPS)</button></div>
    <label>비밀번호 변경</label>
    <input type="password" id="pw_old" placeholder="현재 비밀번호">
    <input type="password" id="pw_new" placeholder="새 비밀번호(4자 이상)" style="margin-top:8px">
@@ -272,20 +300,38 @@ async function saveLoc(){ const lat=parseFloat($('lat').value),lon=parseFloat($(
   if(isNaN(lat)||isNaN(lon))return;
   await fetch('/api/settings',{method:'POST',body:JSON.stringify({lat,lon})}); toast('위치 저장됨'); }
 let _map,_marker;
-function initMap(lat,lon){
+function _pick(ll){ $('lat').value=ll.lat.toFixed(4); $('lon').value=ll.lng.toFixed(4); saveLoc(); }
+async function _center(){   // 저장된 위치 → IP 지오로케이션 → 기본
+  let lat=parseFloat($('lat').value), lon=parseFloat($('lon').value), saved=true;
+  if(isNaN(lat)||isNaN(lon)){ saved=false;
+    try{const g=await (await fetch('/api/geoip')).json(); if(g&&g.lat){lat=g.lat;lon=g.lon;}}catch(e){}
+  }
+  if(isNaN(lat)||isNaN(lon)){lat=37.5;lon=127.0;}
+  return {lat,lon,saved};
+}
+async function initMap(){
   if(_map||typeof L==='undefined'||!$('map'))return;
-  _map=L.map('map').setView([lat,lon],14);
+  const c=await _center();
+  _map=L.map('map').setView([c.lat,c.lon],13);
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap'}).addTo(_map);
-  _marker=L.marker([lat,lon],{draggable:true}).addTo(_map);
-  const pick=ll=>{$('lat').value=ll.lat.toFixed(4);$('lon').value=ll.lng.toFixed(4);saveLoc();};
-  _map.on('click',e=>{_marker.setLatLng(e.latlng);pick(e.latlng);});
-  _marker.on('dragend',()=>pick(_marker.getLatLng()));
+  _marker=L.marker([c.lat,c.lon],{draggable:true}).addTo(_map);
+  _map.on('click',e=>{_marker.setLatLng(e.latlng);_pick(e.latlng);});
+  _marker.on('dragend',()=>_pick(_marker.getLatLng()));
+  if(!c.saved) _pick({lat:c.lat,lng:c.lon});   // IP로 잡은 초기 위치 저장
+  setTimeout(()=>_map&&_map.invalidateSize(),120);
 }
 function onLatLon(){ const lat=parseFloat($('lat').value),lon=parseFloat($('lon').value);
   if(_map&&!isNaN(lat)&&!isNaN(lon)){_marker.setLatLng([lat,lon]);_map.setView([lat,lon]);} saveLoc(); }
-const _ab=$('adminbox'); if(_ab) _ab.addEventListener('toggle',e=>{ if(e.target.open){
-  initMap(parseFloat($('lat').value)||37.5665, parseFloat($('lon').value)||126.978);
-  setTimeout(()=>_map&&_map.invalidateSize(),120); }});
+function useGPS(){
+  if(!navigator.geolocation){toast('이 기기는 GPS 미지원');return;}
+  toast('GPS 위치 확인중…');
+  navigator.geolocation.getCurrentPosition(p=>{
+    const lat=p.coords.latitude, lon=p.coords.longitude;
+    if(_map){_marker.setLatLng([lat,lon]);_map.setView([lat,lon],16);}
+    _pick({lat,lng:lon}); toast('내 위치로 저장됨');
+  }, e=>toast('GPS 실패: '+e.message), {enableHighAccuracy:true,timeout:8000});
+}
+const _ab=$('adminbox'); if(_ab) _ab.addEventListener('toggle',e=>{ if(e.target.open) initMap(); });
 async function setRemote(){ const en=$('rem').checked; $('remurl').textContent=en?'터널 생성중… (몇 초)':'';
   await fetch('/api/remote',{method:'POST',body:JSON.stringify({enable:en})}); }
 async function logout(){ await fetch('/api/logout',{method:'POST'}); location.href='/login'; }
@@ -481,6 +527,8 @@ def make_handler(proc, engine, controller, remote, auth_enabled=True):
                     "remote": remote.status(),
                     "auth": {"default_pw": auth.is_default()},
                 })
+            elif self.path == "/api/geoip":
+                self._json(geoip() or {})
             elif self.path == "/snapshot.jpg":
                 jpeg = proc.jpeg_slot.get()
                 if jpeg is None:
@@ -614,6 +662,7 @@ def main():
     args = parse_args()
     store.init()
     auth.init()
+    threading.Thread(target=autodetect_location, daemon=True).start()  # IP geo
     log.info("starting profile=%s port=%d remote=%s", args.profile, args.port, args.remote)
     if auth.is_default():
         log.warning("기본 비밀번호 'admin' 사용 중 — 대시보드에서 변경하세요.")

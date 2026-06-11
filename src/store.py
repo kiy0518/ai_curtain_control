@@ -30,10 +30,9 @@ def init():
             enabled INTEGER DEFAULT 1);
         """)
         _conn.commit()
-    # sensible defaults (Seoul) so sun schedules work out of the box
-    if get_setting("lat") is None:
-        set_setting("lat", "37.5665")
-        set_setting("lon", "126.9780")
+    # No hardcoded location — app.py fills it from IP geolocation at startup,
+    # or the user picks it on the map / via GPS. solar/scheduler fall back to a
+    # default only if nothing is ever set.
 
 
 # --- settings --------------------------------------------------------------
