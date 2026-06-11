@@ -196,6 +196,7 @@ DASHBOARD_HTML = """<!doctype html>
 <div id="toast"></div>
 <div class="appbar"><span class="t">🪟 AI 커튼 제어</span>
   <span><span id="conn" class="chip off">연결 확인…</span>
+  <button id="sndbtn" class="chip" style="border:0;cursor:pointer;margin-left:6px" onclick="toggleSound()">🔊</button>
   <button class="chip" style="border:0;cursor:pointer;margin-left:6px" onclick="logout()">로그아웃</button></span></div>
 <main>
  <div id="pwwarn" class="card" style="display:none;background:#4a2024;color:#F2B8B5">
@@ -286,6 +287,21 @@ DASHBOARD_HTML = """<!doctype html>
 </main>
 <script>
 const $=id=>document.getElementById(id);
+// --- 비프음 (Web Audio, 음원파일 불필요) ---
+let _ac=null, _snd=(localStorage.getItem('snd')!=='0'), _lastEvt=null;
+function _ensureAudio(){ if(!_ac){try{_ac=new (window.AudioContext||window.webkitAudioContext)();}catch(e){}}
+  if(_ac&&_ac.state==='suspended')_ac.resume(); }
+document.addEventListener('click',_ensureAudio);
+function beep(freqs,dur=0.13){ if(!_snd||!_ac)return; let t=_ac.currentTime;
+  freqs.forEach((f,i)=>{ const o=_ac.createOscillator(),g=_ac.createGain();
+    o.type='sine'; o.frequency.value=f; o.connect(g); g.connect(_ac.destination);
+    const st=t+i*(dur+0.04);
+    g.gain.setValueAtTime(0.0001,st); g.gain.exponentialRampToValueAtTime(0.3,st+0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001,st+dur); o.start(st); o.stop(st+dur); }); }
+const BEEP={OPEN:[660,990],CLOSE:[660,440],STOP:[520,520,520]}; // 열림=상승,닫힘=하강,정지=3연
+function gestureBeep(l){ if(BEEP[l])beep(BEEP[l]); }
+function toggleSound(){ _snd=!_snd; localStorage.setItem('snd',_snd?'1':'0');
+  $('sndbtn').textContent=_snd?'🔊':'🔇'; _ensureAudio(); if(_snd)beep([880]); }
 function toggleFull(){ const el=$('vidwrap');
   const fs=document.fullscreenElement||document.webkitFullscreenElement;
   if(!fs){ (el.requestFullscreen||el.webkitRequestFullscreen||(()=>{})).call(el); }
@@ -303,7 +319,7 @@ DOW.forEach((d,i)=>{const e=document.createElement('div');e.className='day';e.te
   $('s_days').appendChild(e);});
 function kindUI(){const sun=$('s_kind').value==='sun';$('s_sun_box').style.display=sun?'block':'none';$('s_time_box').style.display=sun?'none':'block';}
 
-async function ctl(a){ try{await fetch('/api/control',{method:'POST',body:JSON.stringify({action:a})});}catch(e){} }
+async function ctl(a){ gestureBeep(a); try{await fetch('/api/control',{method:'POST',body:JSON.stringify({action:a})});}catch(e){} }
 async function setModel(){ $('conn').textContent='모델 전환중…';
   try{ await fetch('/api/model',{method:'POST',body:JSON.stringify({profile:$('profile').value})}); toast('모델 저장됨'); }catch(e){} }
 async function setConf(){ let v=parseFloat($('conf').value);
@@ -395,6 +411,10 @@ async function poll(){
    $('pwwarn').style.display=(s.auth&&s.auth.default_pw)?'block':'none';
    $('curtain').textContent=stMap[s.curtain.state]||s.curtain.state;
    $('motornote').style.display=s.curtain.motor_connected?'none':'block';
+   if(typeof s.engine.event_seq==='number'){
+     if(_lastEvt!==null && s.engine.event_seq>_lastEvt && s.engine.event_label) gestureBeep(s.engine.event_label);
+     _lastEvt=s.engine.event_seq;
+   }
    $('gesture').textContent=s.engine.gesture?(KR[s.engine.gesture]||s.engine.gesture):'—';
    $('model').textContent=s.engine.profile+' / '+s.engine.imgsz;
    $('perf').textContent=s.engine.infer_ms+'ms';
@@ -421,6 +441,7 @@ async function poll(){
    $('profdesc').textContent=s.engine.profile_desc;
  }catch(e){ $('conn').textContent='오프라인'; $('conn').className='chip off'; }
 }
+$('sndbtn').textContent=_snd?'🔊':'🔇';
 setInterval(poll,1000); poll();
 if('serviceWorker' in navigator){navigator.serviceWorker.register('/sw.js').catch(()=>{});}
 </script>

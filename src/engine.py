@@ -33,6 +33,8 @@ class PoseEngine:
         self._committed = None
         self._last_event = None                # 이벤트형: 마지막 확정 제스처
         self._last_event_ts = 0.0
+        self.gesture_event = 0                  # 확정 발행마다 +1 (클라이언트 비프용)
+        self.gesture_event_label = None
         self.stats = {"infer_ms": 0.0, "count": 0, "raw": None, "gesture": None}
         self.set_profile(profile_name)
 
@@ -65,6 +67,10 @@ class PoseEngine:
 
     def set_flip(self, on):
         self.flip = bool(on)
+
+    def _fire_event(self, label):
+        self.gesture_event += 1
+        self.gesture_event_label = label
 
     def set_hold(self, hold):
         """Set the consecutive-frame count needed to confirm a gesture."""
@@ -111,6 +117,7 @@ class PoseEngine:
                 self.controller.command(raw, "gesture")
             if raw:
                 self._last_event, self._last_event_ts = raw, now
+                self._fire_event(raw)
             committed = (self._last_event
                          if now - self._last_event_ts < EVENT_HUD_SEC else None)
             draw_motion_debug(frame, tracker)
@@ -122,8 +129,10 @@ class PoseEngine:
                 raw = prof.classify(best["keypoints"])
             committed = self.stabilizer.update(raw)
             # fire a curtain command only when the committed gesture changes
-            if committed and committed != self._committed and self.controller:
-                self.controller.command(committed, "gesture")
+            if committed and committed != self._committed:
+                if self.controller:
+                    self.controller.command(committed, "gesture")
+                self._fire_event(committed)
             self._committed = committed
             # top-centre HUD: gesture + confirm counter (N/hold) + confidence
             draw_hud(frame, committed, self.stabilizer.candidate,
@@ -146,6 +155,8 @@ class PoseEngine:
             "gesture_enabled": self.gesture_enabled,
             "hold": self.hold,
             "flip": self.flip,
+            "event_seq": self.gesture_event,
+            "event_label": self.gesture_event_label,
             **self.stats,
         }
 
