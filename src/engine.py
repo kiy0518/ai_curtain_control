@@ -12,18 +12,26 @@ import cv2
 from profiles import get_profile, PROFILES
 from hand_pose import HandPose
 from gesture import GestureStabilizer
+import gesture_motion
 from draw import draw_detections, draw_hud, draw_motion_debug
 
 EVENT_HUD_SEC = 2.0    # 이벤트형 제스처를 HUD에 유지 표시하는 시간
 
 
 class PoseEngine:
-    def __init__(self, profile_name, conf=0.3, controller=None, hold=3, flip=False):
+    def __init__(self, profile_name, conf=0.3, controller=None, hold=3, flip=False,
+                 motion_hold_sec=None, motion_refractory_sec=None):
         self.conf = conf
         self.controller = controller
         self.gesture_enabled = True
         self.flip = bool(flip)                 # mirror video L-R (text stays normal)
         self.hold = max(1, int(hold))          # consecutive frames to confirm
+        # body_motion 전용 타이밍 (정지 유지 / 명령 후 불응) — 런타임 조정 가능
+        self.motion_hold_sec = (float(motion_hold_sec) if motion_hold_sec
+                                else gesture_motion.HOLD_SEC)
+        self.motion_refractory_sec = (float(motion_refractory_sec)
+                                      if motion_refractory_sec
+                                      else gesture_motion.REFRACTORY_SEC)
         self.stabilizer = GestureStabilizer(hold=self.hold)
 
         self._lock = threading.Lock()
@@ -46,6 +54,8 @@ class PoseEngine:
         new = HandPose.from_profile(prof, conf_thres=self.conf,
                                     model_path=model_path)
         tracker = prof.make_classifier() if prof.make_classifier else None
+        if tracker is not None and hasattr(tracker, "set_timing"):
+            tracker.set_timing(self.motion_hold_sec, self.motion_refractory_sec)
         with self._lock:
             old, self.model, self.profile = self.model, new, prof
             self.tracker = tracker             # 상태 분류기는 스왑 시 새로 생성
@@ -67,6 +77,17 @@ class PoseEngine:
 
     def set_flip(self, on):
         self.flip = bool(on)
+
+    def set_motion_timing(self, hold_sec=None, refractory_sec=None):
+        """body_motion의 정지 유지 / 불응 시간을 런타임에 변경(설정/스왑에 보존)."""
+        with self._lock:
+            if hold_sec is not None:
+                self.motion_hold_sec = float(hold_sec)
+            if refractory_sec is not None:
+                self.motion_refractory_sec = float(refractory_sec)
+            if self.tracker is not None and hasattr(self.tracker, "set_timing"):
+                self.tracker.set_timing(self.motion_hold_sec,
+                                        self.motion_refractory_sec)
 
     def _fire_event(self, label):
         self.gesture_event += 1
@@ -155,6 +176,8 @@ class PoseEngine:
             "gesture_enabled": self.gesture_enabled,
             "hold": self.hold,
             "flip": self.flip,
+            "motion_hold_sec": round(self.motion_hold_sec, 1),
+            "motion_refractory_sec": round(self.motion_refractory_sec, 1),
             "event_seq": self.gesture_event,
             "event_label": self.gesture_event_label,
             **self.stats,

@@ -138,6 +138,26 @@ class HoldStopTest(unittest.TestCase):
         self.assertEqual(ev1, ["STOP"])
         self.assertEqual(ev2, [])                # 재무장 전엔 반복 발행 금지
 
+    def test_set_timing_changes_hold_threshold(self):
+        # 정지 인식 시간을 0.6초로 줄이면 그만큼만 들고 있어도 STOP
+        c = WristMotionClassifier(mirror=True)
+        c.set_timing(hold_sec=0.6)
+        ev_short, t = hold(c, CX + 30, 0.7, t0=0.0)
+        self.assertEqual(ev_short, ["STOP"])
+        # 같은 0.7초 유지가 기본(1.5초)에서는 STOP이 아님
+        c2 = WristMotionClassifier(mirror=True)
+        ev_def, _ = hold(c2, CX + 30, 0.7, t0=0.0)
+        self.assertEqual(ev_def, [])
+
+    def test_set_timing_changes_refractory(self):
+        # 불응 시간을 늘리면 그 동안 두 번째 제스처가 더 오래 막힌다
+        c = WristMotionClassifier(mirror=True)
+        c.set_timing(refractory_sec=3.0)
+        ev1, t = feed(c, np.linspace(200, 440, 12))              # OPEN
+        ev2, _ = feed(c, np.linspace(440, 200, 12), t0=t + 2.0)  # 2초 뒤(불응<3s)
+        self.assertEqual(ev1, ["OPEN"])
+        self.assertEqual(ev2, [])                                # 아직 불응 중
+
     def test_hand_at_face_is_not_stop(self):
         # 눈 비비기 등 손목이 코(얼굴) 근처면 들고 멈춰도 STOP 제외
         c = WristMotionClassifier(mirror=True)

@@ -77,11 +77,16 @@ class WristMotionClassifier:
     상태를 가지므로 프로파일 스왑 시 새로 생성해야 한다(profiles.make_classifier).
     """
 
-    def __init__(self, mirror=None):
+    def __init__(self, mirror=None, hold_sec=None, refractory_sec=None):
         if mirror is None:
             mirror = os.environ.get(
                 MIRROR_ENV, "1" if MIRROR_DEFAULT else "0") != "0"
         self.mirror = mirror
+        # 런타임 조정 가능: 정지 유지 시간 / 명령 후 불응 시간 (대시보드 설정)
+        self.hold_sec = HOLD_SEC
+        self.refractory_sec = REFRACTORY_SEC
+        self.traj_sec = TRAJ_SEC
+        self.set_timing(hold_sec, refractory_sec)
         self._buf = deque()        # (t, nx, ny, px, py) — 정규화 + 픽셀 좌표
         self._box = None           # 추적 중인 person 박스 (동일인 고정용)
         self._wrist = None         # 추적 중인 손목 인덱스 (9 또는 10)
@@ -92,6 +97,15 @@ class WristMotionClassifier:
         self._stop_armed = True    # 정지(hold)는 움직임이 한 번 있어야 재무장
         self._near_face = False    # 추적 손목이 코 근처인가 (정지 제외용)
         self.status = "no person"  # 디버그 오버레이용 (cv2 렌더 가능한 ASCII)
+
+    def set_timing(self, hold_sec=None, refractory_sec=None):
+        """정지 유지 시간 / 불응 시간을 런타임에 조정. 궤적 버퍼는 정지창을
+        담을 수 있도록 hold_sec 이상으로 자동 확장한다."""
+        if hold_sec:
+            self.hold_sec = float(hold_sec)
+        if refractory_sec:
+            self.refractory_sec = float(refractory_sec)
+        self.traj_sec = max(TRAJ_SEC, self.hold_sec + 0.3)
 
     # --- 메인 엔트리 --------------------------------------------------------
     def update(self, dets, now):
@@ -189,7 +203,7 @@ class WristMotionClassifier:
         self._buf.append((now, nx, ny, px, py))
 
     def _trim(self, now):
-        while self._buf and now - self._buf[0][0] > TRAJ_SEC:
+        while self._buf and now - self._buf[0][0] > self.traj_sec:
             self._buf.popleft()
 
     def _detect_swipe(self, now):
@@ -211,8 +225,8 @@ class WristMotionClassifier:
     def _detect_hold(self, now):
         if self._near_face:
             return None                         # 얼굴 만지기는 정지로 보지 않음
-        win = [s for s in self._buf if now - s[0] <= HOLD_SEC]
-        if len(win) < 4 or win[-1][0] - win[0][0] < HOLD_SEC * 0.9:
+        win = [s for s in self._buf if now - s[0] <= self.hold_sec]
+        if len(win) < 4 or win[-1][0] - win[0][0] < self.hold_sec * 0.9:
             return None
         cx = sum(s[1] for s in win) / len(win)
         cy = sum(s[2] for s in win) / len(win)
@@ -239,7 +253,7 @@ class WristMotionClassifier:
 
     def _emit(self, label, now):
         self._last_emit = label
-        self._refractory_until = now + REFRACTORY_SEC
+        self._refractory_until = now + self.refractory_sec
         if label == "STOP":
             self._stop_armed = False            # 계속 들고 있어도 반복 발행 금지
         self._clear(rearm=(label != "STOP"))

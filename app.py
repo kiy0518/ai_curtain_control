@@ -262,9 +262,15 @@ DASHBOARD_HTML = """<!doctype html>
    <label>신뢰도(conf) — 0.05 ~ 0.95 (숫자 입력)</label>
    <input type="number" id="conf" min="0.05" max="0.95" step="0.05" inputmode="decimal"
           onchange="setConf()">
-   <label>제스처 확정 카운트 — 연속 N회 (1~30)</label>
+   <label>제스처 확정 카운트 — 연속 N회 (1~30, 손/팔 정적 제스처)</label>
    <input type="number" id="hold" min="1" max="30" step="1" inputmode="numeric"
           onchange="setHold()">
+   <label>정지(STOP) 인식 시간 — 손 들고 멈춤 유지 초 (원거리 움직임, 0.5~4)</label>
+   <input type="number" id="hold_sec" min="0.5" max="4" step="0.1" inputmode="decimal"
+          onchange="setMotion()">
+   <label>명령 후 대기(불응) 시간 — 다음 명령까지 무시할 초 (0.3~5)</label>
+   <input type="number" id="refr_sec" min="0.3" max="5" step="0.1" inputmode="decimal"
+          onchange="setMotion()">
    <label style="display:flex;align-items:center;gap:12px;margin-top:16px">제스처 인식 사용
      <span class="switch"><input type="checkbox" id="gest" onchange="setGest()"><span class="tr"></span><span class="kn"></span></span>
    </label>
@@ -329,6 +335,13 @@ async function setGest(){ await fetch('/api/settings',{method:'POST',body:JSON.s
 async function setFlip(){ await fetch('/api/settings',{method:'POST',body:JSON.stringify({flip:$('flip').checked})}); toast($('flip').checked?'좌우반전 켜짐':'좌우반전 꺼짐'); }
 async function setHold(){ let h=parseInt($('hold').value); if(isNaN(h))return; h=Math.min(30,Math.max(1,h)); $('hold').value=h;
   await fetch('/api/settings',{method:'POST',body:JSON.stringify({hold:h})}); toast('확정 카운트 '+h+'회 저장됨'); }
+async function setMotion(){ const b={};
+  let hs=parseFloat($('hold_sec').value), rs=parseFloat($('refr_sec').value);
+  if(!isNaN(hs)){hs=Math.min(4,Math.max(0.5,hs)); $('hold_sec').value=hs; b.motion_hold_sec=hs;}
+  if(!isNaN(rs)){rs=Math.min(5,Math.max(0.3,rs)); $('refr_sec').value=rs; b.motion_refractory_sec=rs;}
+  if(!Object.keys(b).length)return;
+  await fetch('/api/settings',{method:'POST',body:JSON.stringify(b)});
+  toast('움직임 타이밍 저장됨 (정지 '+(b.motion_hold_sec??$('hold_sec').value)+'s / 대기 '+(b.motion_refractory_sec??$('refr_sec').value)+'s)'); }
 async function saveLoc(){ const lat=parseFloat($('lat').value),lon=parseFloat($('lon').value);
   if(isNaN(lat)||isNaN(lon))return;
   await fetch('/api/settings',{method:'POST',body:JSON.stringify({lat,lon})}); toast('위치 저장됨'); }
@@ -433,6 +446,8 @@ async function poll(){
      sel.value=s.engine.profile;
      $('conf').value=(+s.engine.conf).toFixed(2);
      $('hold').value=s.engine.hold;
+     if(s.engine.motion_hold_sec!=null) $('hold_sec').value=s.engine.motion_hold_sec;
+     if(s.engine.motion_refractory_sec!=null) $('refr_sec').value=s.engine.motion_refractory_sec;
      $('gest').checked=s.engine.gesture_enabled;
      $('flip').checked=!!s.engine.flip;
      if(s.location){$('lat').value=s.location.lat||''; $('lon').value=s.location.lon||'';}
@@ -647,6 +662,14 @@ def make_handler(proc, engine, controller, remote, auth_enabled=True):
                     f = bool(data["flip"])
                     engine.set_flip(f)
                     store.set_setting("flip", "1" if f else "0")
+                if "motion_hold_sec" in data:
+                    v = min(4.0, max(0.5, float(data["motion_hold_sec"])))
+                    engine.set_motion_timing(hold_sec=v)
+                    store.set_setting("motion_hold_sec", v)
+                if "motion_refractory_sec" in data:
+                    v = min(5.0, max(0.3, float(data["motion_refractory_sec"])))
+                    engine.set_motion_timing(refractory_sec=v)
+                    store.set_setting("motion_refractory_sec", v)
                 if "lat" in data:
                     store.set_setting("lat", float(data["lat"]))
                 if "lon" in data:
@@ -720,8 +743,16 @@ def main():
         saved_hold = int(store.get_setting("hold"))
     except (TypeError, ValueError):
         saved_hold = 3
+
+    def _fget(key):
+        try:
+            return float(store.get_setting(key))
+        except (TypeError, ValueError):
+            return None
     engine = PoseEngine(saved_profile, conf=saved_conf, controller=controller,
-                        hold=saved_hold, flip=(store.get_setting("flip") == "1"))
+                        hold=saved_hold, flip=(store.get_setting("flip") == "1"),
+                        motion_hold_sec=_fget("motion_hold_sec"),
+                        motion_refractory_sec=_fget("motion_refractory_sec"))
     g = store.get_setting("gesture_enabled")
     if g is not None:
         engine.set_gesture_enabled(g == "1")
