@@ -80,7 +80,7 @@ PROFILES = {
         highlight=[9, 10],          # wrists
         make_classifier=gesture_motion.WristMotionClassifier,
         dyn_small_h=0.30, dyn_big_h=0.80,   # 사람 박스는 세로로 김 → 기준 키움
-        desc="원거리 손목 움직임: 손 들고 우→좌=열림 / 좌→우=닫힘 / 멈춤유지=정지",
+        desc="원거리 손목 움직임: 손 들고 우→좌=열림 / 좌→우=닫힘 / 양팔X교차=정지",
     ),
 }
 

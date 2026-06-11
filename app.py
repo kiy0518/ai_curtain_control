@@ -268,7 +268,7 @@ DASHBOARD_HTML = """<!doctype html>
    <label>제스처 확정 카운트 — 연속 N회 (1~30, 손/팔 정적 제스처)</label>
    <input type="number" id="hold" min="1" max="30" step="1" inputmode="numeric"
           onchange="setHold()">
-   <label>정지(STOP) 인식 시간 — 손 들고 멈춤 유지 초 (원거리 움직임, 0.5~4)</label>
+   <label>정지(X 교차) 유지 시간 — 양팔 X자세 유지 초 (원거리 움직임, 0.5~4)</label>
    <input type="number" id="hold_sec" min="0.5" max="4" step="0.1" inputmode="decimal"
           onchange="setMotion()">
    <label>명령 후 대기(불응) 시간 — 다음 명령까지 무시할 초 (0.3~5)</label>
