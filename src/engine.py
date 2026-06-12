@@ -26,7 +26,8 @@ EVENT_HUD_SEC = 2.0    # 이벤트형 제스처를 HUD에 유지 표시하는 �
 class PoseEngine:
     def __init__(self, profile_name, conf=0.3, controller=None, hold=3, flip=False,
                  motion_hold_sec=None, motion_refractory_sec=None,
-                 motion_swipe_dist=None, arm_extend=None, dyn_conf=True):
+                 motion_swipe_dist=None, arm_extend=None, arm_down=None,
+                 dyn_conf=True):
         self.conf = conf                       # full(가까운 큰 박스) 신뢰도 기준
         self.dyn_conf = bool(dyn_conf)         # 박스 크기 적응형(작을수록 관대)
         self.controller = controller
@@ -45,6 +46,8 @@ class PoseEngine:
         self.arm_extend = (float(arm_extend) if arm_extend
                            else gesture_body.ARM_EXTEND)
         gesture_body.set_arm_extend(self.arm_extend)
+        self.arm_down = (float(arm_down) if arm_down else gesture_body.ARM_DOWN)
+        gesture_body.set_arm_down(self.arm_down)
         self.stabilizer = GestureStabilizer(hold=self.hold)
 
         self._lock = threading.Lock()
@@ -126,6 +129,11 @@ class PoseEngine:
         """body_far 팔 뻗는 거리(어깨너비 배수)를 런타임에 변경."""
         self.arm_extend = float(v)
         gesture_body.set_arm_extend(self.arm_extend)
+
+    def set_arm_down(self, v):
+        """body_far 팔 수평 인정 높이의 '어깨 아래' 허용치를 런타임에 변경."""
+        self.arm_down = float(v)
+        gesture_body.set_arm_down(self.arm_down)
 
     def set_motion_timing(self, hold_sec=None, refractory_sec=None,
                           swipe_dist=None):
@@ -238,6 +246,7 @@ class PoseEngine:
             "motion_refractory_sec": round(self.motion_refractory_sec, 1),
             "motion_swipe_dist": round(self.motion_swipe_dist, 2),
             "arm_extend": round(self.arm_extend, 2),
+            "arm_down": round(self.arm_down, 2),
             "event_seq": self.gesture_event,
             "event_label": self.gesture_event_label,
             **self.stats,

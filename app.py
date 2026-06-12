@@ -156,6 +156,7 @@ DASHBOARD_HTML = """<!doctype html>
  .b-stop{background:var(--stop);color:var(--stop-c)}
  .b-close{background:var(--close);color:var(--close-c)}
  .note{font-size:12px;color:var(--on-var);opacity:.8;margin-top:12px}
+ .seg{margin:22px 0 4px;padding-top:14px;border-top:1px solid var(--ol,#3a3a3a);font-weight:700;font-size:13px;color:var(--pr,#9ecbff)}
  .kv{display:flex;justify-content:space-between;font-size:14px;padding:8px 0;
    border-bottom:1px solid var(--outline)}
  .kv:last-child{border:0} .kv b{color:var(--on-surface);font-weight:600}
@@ -259,33 +260,47 @@ DASHBOARD_HTML = """<!doctype html>
    <label>모델 / 프로파일 (런타임 전환)</label>
    <select id="profile" onchange="setModel()"></select>
    <div class="note" id="profdesc"></div>
+
+   <div class="seg">공통 (전 모델)</div>
    <label>신뢰도(conf) — 0.05 ~ 0.95 (큰/가까운 박스 기준)</label>
    <input type="number" id="conf" min="0.05" max="0.95" step="0.05" inputmode="decimal"
           onchange="setConf()">
    <label style="display:flex;align-items:center;gap:12px;margin-top:16px">적응형 신뢰도 (작은 박스=관대, 먼 손도 검출)
      <span class="switch"><input type="checkbox" id="dyn" onchange="setDyn()"><span class="tr"></span><span class="kn"></span></span>
    </label>
-   <label>제스처 확정 카운트 — 연속 N회 (1~30, 손/팔 정적 제스처)</label>
-   <input type="number" id="hold" min="1" max="30" step="1" inputmode="numeric"
-          onchange="setHold()">
-   <label>정지(X 교차) 유지 시간 — 양팔 X자세 유지 초 (원거리 움직임, 0.5~4)</label>
-   <input type="number" id="hold_sec" min="0.5" max="4" step="0.1" inputmode="decimal"
-          onchange="setMotion()">
-   <label>명령 후 대기(불응) 시간 — 다음 명령까지 무시할 초 (0.3~5)</label>
-   <input type="number" id="refr_sec" min="0.3" max="5" step="0.1" inputmode="decimal"
-          onchange="setMotion()">
-   <label>스와이프 길이 — 어깨너비의 몇 배만큼 쓸어야 인식 (body_motion, 0.3~2.0)</label>
-   <input type="number" id="swipe_dist" min="0.3" max="2" step="0.1" inputmode="decimal"
-          onchange="setMotion()">
-   <label>팔 뻗는 거리 — 어깨너비의 몇 배 펴야 인식 (body_far 팔 수평, 0.3~1.5)</label>
-   <input type="number" id="arm_extend" min="0.3" max="1.5" step="0.1" inputmode="decimal"
-          onchange="setMotion()">
    <label style="display:flex;align-items:center;gap:12px;margin-top:16px">제스처 인식 사용
      <span class="switch"><input type="checkbox" id="gest" onchange="setGest()"><span class="tr"></span><span class="kn"></span></span>
    </label>
    <label style="display:flex;align-items:center;gap:12px;margin-top:16px">영상 좌우반전 (거울)
      <span class="switch"><input type="checkbox" id="flip" onchange="setFlip()"><span class="tr"></span><span class="kn"></span></span>
    </label>
+
+   <div class="seg">근거리 손 (hand_near)</div>
+   <label>제스처 확정 카운트 — 연속 N회 (1~30, 손·팔 정적 제스처 공용)</label>
+   <input type="number" id="hold" min="1" max="30" step="1" inputmode="numeric"
+          onchange="setHold()">
+   <div class="note">손가락 제스처(👈/👍/🖐)는 위 신뢰도·확정 카운트로 조정됩니다.</div>
+
+   <div class="seg">원거리 팔 포즈 (body_far)</div>
+   <label>팔 뻗는 거리 — 어깨너비의 몇 배 펴야 인식 (0.3~1.5)</label>
+   <input type="number" id="arm_extend" min="0.3" max="1.5" step="0.1" inputmode="decimal"
+          onchange="setBodyFar()">
+   <label>팔 수평 높이(어깨 아래 허용) — 어깨너비 배수, 클수록 더 아래도 인식 (0.2~1.2)</label>
+   <input type="number" id="arm_down" min="0.2" max="1.2" step="0.1" inputmode="decimal"
+          onchange="setBodyFar()">
+
+   <div class="seg">원거리 움직임 (body_motion)</div>
+   <label>정지(X 교차) 유지 시간 — 양팔 X자세 유지 초 (0.5~4)</label>
+   <input type="number" id="hold_sec" min="0.5" max="4" step="0.1" inputmode="decimal"
+          onchange="setMotion()">
+   <label>명령 후 대기(불응) 시간 — 다음 명령까지 무시할 초 (0.3~5)</label>
+   <input type="number" id="refr_sec" min="0.3" max="5" step="0.1" inputmode="decimal"
+          onchange="setMotion()">
+   <label>스와이프 길이 — 어깨너비의 몇 배만큼 쓸어야 인식 (0.3~2.0)</label>
+   <input type="number" id="swipe_dist" min="0.3" max="2" step="0.1" inputmode="decimal"
+          onchange="setMotion()">
+
+   <div class="seg">위치 / 시스템</div>
    <label>위치(일출/일몰 계산용) — 지도를 클릭/드래그하면 자동 저장</label>
    <div id="map"></div>
    <div class="grid2">
@@ -353,11 +368,16 @@ async function setMotion(){ const b={};
   if(!isNaN(hs)){hs=Math.min(4,Math.max(0.5,hs)); $('hold_sec').value=hs; b.motion_hold_sec=hs;}
   if(!isNaN(rs)){rs=Math.min(5,Math.max(0.3,rs)); $('refr_sec').value=rs; b.motion_refractory_sec=rs;}
   if(!isNaN(sd)){sd=Math.min(2,Math.max(0.3,sd)); $('swipe_dist').value=sd; b.motion_swipe_dist=sd;}
-  let ae=parseFloat($('arm_extend').value);
-  if(!isNaN(ae)){ae=Math.min(1.5,Math.max(0.3,ae)); $('arm_extend').value=ae; b.arm_extend=ae;}
   if(!Object.keys(b).length)return;
   await fetch('/api/settings',{method:'POST',body:JSON.stringify(b)});
   toast('움직임 설정 저장됨 (정지 '+$('hold_sec').value+'s / 대기 '+$('refr_sec').value+'s / 스와이프 '+$('swipe_dist').value+')'); }
+async function setBodyFar(){ const b={};
+  let ae=parseFloat($('arm_extend').value), ad=parseFloat($('arm_down').value);
+  if(!isNaN(ae)){ae=Math.min(1.5,Math.max(0.3,ae)); $('arm_extend').value=ae; b.arm_extend=ae;}
+  if(!isNaN(ad)){ad=Math.min(1.2,Math.max(0.2,ad)); $('arm_down').value=ad; b.arm_down=ad;}
+  if(!Object.keys(b).length)return;
+  await fetch('/api/settings',{method:'POST',body:JSON.stringify(b)});
+  toast('팔 포즈 설정 저장됨 (뻗기 '+$('arm_extend').value+' / 아래허용 '+$('arm_down').value+')'); }
 async function saveLoc(){ const lat=parseFloat($('lat').value),lon=parseFloat($('lon').value);
   if(isNaN(lat)||isNaN(lon))return;
   await fetch('/api/settings',{method:'POST',body:JSON.stringify({lat,lon})}); toast('위치 저장됨'); }
@@ -467,6 +487,7 @@ async function poll(){
      if(s.engine.motion_refractory_sec!=null) $('refr_sec').value=s.engine.motion_refractory_sec;
      if(s.engine.motion_swipe_dist!=null) $('swipe_dist').value=s.engine.motion_swipe_dist;
      if(s.engine.arm_extend!=null) $('arm_extend').value=s.engine.arm_extend;
+     if(s.engine.arm_down!=null) $('arm_down').value=s.engine.arm_down;
      $('gest').checked=s.engine.gesture_enabled;
      $('flip').checked=!!s.engine.flip;
      if(s.location){$('lat').value=s.location.lat||''; $('lon').value=s.location.lon||'';}
@@ -701,6 +722,10 @@ def make_handler(proc, engine, controller, remote, auth_enabled=True):
                     v = min(1.5, max(0.3, float(data["arm_extend"])))
                     engine.set_arm_extend(v)
                     store.set_setting("arm_extend", v)
+                if "arm_down" in data:
+                    v = min(1.2, max(0.2, float(data["arm_down"])))
+                    engine.set_arm_down(v)
+                    store.set_setting("arm_down", v)
                 if "lat" in data:
                     store.set_setting("lat", float(data["lat"]))
                 if "lon" in data:
@@ -786,6 +811,7 @@ def main():
                         motion_refractory_sec=_fget("motion_refractory_sec"),
                         motion_swipe_dist=_fget("motion_swipe_dist"),
                         arm_extend=_fget("arm_extend"),
+                        arm_down=_fget("arm_down"),
                         dyn_conf=(store.get_setting("dyn_conf") or "1") == "1")
     g = store.get_setting("gesture_enabled")
     if g is not None:

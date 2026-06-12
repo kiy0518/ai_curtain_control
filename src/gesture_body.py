@@ -15,16 +15,25 @@ SH_L, SH_R = 5, 6
 WR_L, WR_R = 9, 10
 _CONF = 0.3
 
-# 팔 수평 판정(어깨너비 배수). ARM_EXTEND 는 대시보드에서 런타임 조정 가능:
-# 손목이 같은쪽 어깨에서 가로로 ARM_EXTEND*어깨너비 이상 떨어져야 '팔 폄'.
+# 팔 수평 판정(어깨너비 배수) — 대시보드에서 런타임 조정 가능:
+#  · ARM_EXTEND: 손목이 같은쪽 어깨에서 가로로 이만큼 떨어져야 '팔 폄'
+#  · ARM_UP/ARM_DOWN: 손목이 어깨 높이에서 위/아래로 허용하는 범위(비대칭).
+#    팔을 어깨보다 살짝 아래로 들어도 인정하려고 아래(ARM_DOWN)를 더 넉넉히.
 ARM_EXTEND = 0.8         # 작을수록 팔을 덜 펴도 인식(민감)
-HORIZ_MARGIN = 0.35      # 수평 인정 세로 오차(어깨너비 배수)
+ARM_UP = 0.35            # 어깨 위로 허용(고정)
+ARM_DOWN = 0.6           # 어깨 아래로 허용(설정 가능) — 키울수록 더 아래도 인식
 
 
 def set_arm_extend(v):
     """팔 뻗는 거리 기준(어깨너비 배수)을 런타임에 설정."""
     global ARM_EXTEND
     ARM_EXTEND = float(v)
+
+
+def set_arm_down(v):
+    """팔 수평 인정 높이의 '어깨 아래' 허용치(어깨너비 배수)를 런타임에 설정."""
+    global ARM_DOWN
+    ARM_DOWN = float(v)
 
 
 def classify(kp):
@@ -37,7 +46,6 @@ def classify(kp):
     sw = abs(lsh[0] - rsh[0]) + 1e-6             # shoulder width = scale unit
     sh_y = (lsh[1] + rsh[1]) / 2.0
     x_lo, x_hi = min(lsh[0], rsh[0]), max(lsh[0], rsh[0])
-    v_margin = HORIZ_MARGIN * sw
 
     lw, lw_c = kp[WR_L, :2], kp[WR_L, 2]
     rw, rw_c = kp[WR_R, :2], kp[WR_R, 2]
@@ -51,7 +59,8 @@ def classify(kp):
 
     # 한 팔 수평 → 손목이 어깨 높이 + 바깥으로 뻗음
     def horiz(w, wc, sh):
-        return (wc > _CONF and abs(w[1] - sh[1]) < v_margin and
+        dy = w[1] - sh[1]                    # +면 어깨보다 아래(영상 y는 아래로 증가)
+        return (wc > _CONF and -ARM_UP * sw < dy < ARM_DOWN * sw and
                 abs(w[0] - sh[0]) > ARM_EXTEND * sw)
 
     r_horiz = horiz(rw, rw_c, rsh)
