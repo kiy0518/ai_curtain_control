@@ -26,6 +26,7 @@ they are also exported to ONNX (opset 12) — feed that to ``convert_rknn.py`` /
 """
 
 import argparse
+import time
 
 
 def main():
@@ -53,11 +54,22 @@ def main():
                    help="After training, export best.pt to ONNX (opset 12)")
     args = p.parse_args()
 
+    print("=== 손 키포인트 학습 시작 ===", flush=True)
+    print("  (처음 몇 분은 데이터셋 자동 다운로드 — 잠시 대기)", flush=True)
+    model = YOLO(args.resume if args.resume else args.model)
+
+    # 진행바(tqdm)는 끄되 에폭마다 한 줄씩 출력 → 저로그 + 진행 확인
+    t0 = time.time()
+
+    def _hb(tr):
+        el = int(time.time() - t0)
+        print("[진행] epoch %d/%d  (경과 %d분 %d초)"
+              % (tr.epoch + 1, tr.epochs, el // 60, el % 60), flush=True)
+    model.add_callback("on_fit_epoch_end", _hb)
+
     if args.resume:
-        model = YOLO(args.resume)              # resumes with the saved train args
         model.train(resume=True)
     else:
-        model = YOLO(args.model)
         model.train(
             data="hand-keypoints.yaml",        # auto-downloaded by Ultralytics
             epochs=args.epochs,
@@ -67,6 +79,7 @@ def main():
             project=args.project,
             fliplr=args.fliplr,                # <-- the chirality fix
             patience=args.patience,
+            verbose=False,                     # 상세 로그 끔(진행은 위 콜백)
         )
 
     save_dir = model.trainer.save_dir

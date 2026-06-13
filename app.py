@@ -198,6 +198,7 @@ DASHBOARD_HTML = """<!doctype html>
 <div class="appbar"><span class="t">🪟 AI 커튼 제어</span>
   <span><span id="conn" class="chip off">연결 확인…</span>
   <button id="sndbtn" class="chip" style="border:0;cursor:pointer;margin-left:6px" onclick="toggleSound()">🔊</button>
+  <button class="chip" style="border:0;cursor:pointer;margin-left:6px;background:#1565c0;color:#fff" onclick="location.href='http://'+location.hostname+':8000/go?to=drowsy'">😴 졸음 모드</button>
   <button class="chip" style="border:0;cursor:pointer;margin-left:6px" onclick="logout()">로그아웃</button></span></div>
 <main>
  <div id="pwwarn" class="card" style="display:none;background:#4a2024;color:#F2B8B5">
