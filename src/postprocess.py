@@ -98,8 +98,10 @@ def _decode_split(outputs, letterbox, num_keypoints, num_classes,
     det, kpt_out = [], None
     for o in outputs:
         o = np.asarray(o)
-        if o.shape[1] == kpt_ch:
+        if o.shape[1] == kpt_ch:                       # v8: (1, 63, anchors)
             kpt_out = o.reshape(1, kpt_ch, -1)
+        elif o.ndim == 4 and o.shape[1] == num_keypoints and o.shape[2] == 3:
+            kpt_out = o.reshape(1, kpt_ch, -1)         # v11: (1, 21, 3, anchors)
         elif o.shape[1] == det_ch:
             det.append(o)
     det.sort(key=lambda o: o.shape[2] * o.shape[3], reverse=True)
