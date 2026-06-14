@@ -46,7 +46,21 @@ def setup_logging():
 
 from camera import isp_gst_pipeline                # noqa: E402
 from draw import draw_fps                          # noqa: E402
-from streaming import CameraThread, ProcessThread  # noqa: E402
+from streaming import CameraManager, ProcessThread  # noqa: E402
+
+# 웹에서 선택 가능한 카메라 해상도 프리셋 (해상도는 화질만 — 검출은 640 처리)
+CAMERA_RES = {
+    "4k":  (3840, 2160),   # ~12fps (NV12->BGR 변환 한계)
+    "2k":  (2560, 1440),   # ~24fps
+    "fhd": (1920, 1080),   # 30fps
+}
+
+
+def _res_name(w, h):
+    for k, (rw, rh) in CAMERA_RES.items():
+        if (rw, rh) == (w, h):
+            return k
+    return f"{w}x{h}"
 from engine import PoseEngine                      # noqa: E402
 from controller import CurtainController           # noqa: E402
 from constants import GESTURE_KR                   # noqa: E402
@@ -275,12 +289,23 @@ DASHBOARD_HTML = """<!doctype html>
    <label style="display:flex;align-items:center;gap:12px;margin-top:16px">영상 좌우반전 (거울)
      <span class="switch"><input type="checkbox" id="flip" onchange="setFlip()"><span class="tr"></span><span class="kn"></span></span>
    </label>
+   <label style="margin-top:16px">카메라 해상도</label>
+   <select id="camera_res" onchange="setCameraRes()">
+     <option value="fhd">FHD 1920×1080 · 30fps</option>
+     <option value="2k">2K 2560×1440 · ~24fps</option>
+     <option value="4k">4K 3840×2160 · ~12fps</option>
+   </select>
+   <div class="note">화질만 바뀝니다 — 손/제스처 검출은 모델이 640으로 처리하므로 해상도와 무관. 변경 시 카메라가 잠깐(~0.5초) 멈췄다 재시작합니다.</div>
 
    <div class="seg">근거리 손 (hand_near)</div>
    <label>제스처 확정 카운트 — 연속 N회 (1~30, 손·팔 정적 제스처 공용)</label>
    <input type="number" id="hold" min="1" max="30" step="1" inputmode="numeric"
           onchange="setHold()">
-   <div class="note">손가락 제스처(👈/👍/🖐)는 위 신뢰도·확정 카운트로 조정됩니다.</div>
+   <div class="note">👍 엄지 위 = 정지 · 👈/👉 엄지 좌우 = 열림/닫힘</div>
+   <label style="display:flex;align-items:center;gap:12px;margin-top:16px">엄지 좌우 ↔ 열림/닫힘 반전
+     <span class="switch"><input type="checkbox" id="swap_lr" onchange="setSwapLr()"><span class="tr"></span><span class="kn"></span></span>
+   </label>
+   <div class="note">엄지 방향과 열림/닫힘이 반대로 동작하면 이 스위치를 켜세요.</div>
 
    <div class="seg">원거리 팔 포즈 (body_far)</div>
    <label>팔 뻗는 거리 — 어깨너비의 몇 배 펴야 인식 (0.3~1.5)</label>
@@ -362,6 +387,10 @@ async function setConf(){ let v=parseFloat($('conf').value);
 async function setGest(){ await fetch('/api/settings',{method:'POST',body:JSON.stringify({gesture_enabled:$('gest').checked})}); toast('저장됨'); }
 async function setDyn(){ await fetch('/api/settings',{method:'POST',body:JSON.stringify({dyn_conf:$('dyn').checked})}); toast($('dyn').checked?'적응형 신뢰도 켜짐':'적응형 신뢰도 꺼짐'); }
 async function setFlip(){ await fetch('/api/settings',{method:'POST',body:JSON.stringify({flip:$('flip').checked})}); toast($('flip').checked?'좌우반전 켜짐':'좌우반전 꺼짐'); }
+async function setSwapLr(){ await fetch('/api/settings',{method:'POST',body:JSON.stringify({swap_lr:$('swap_lr').checked})}); toast($('swap_lr').checked?'엄지 좌우 반전 켜짐':'엄지 좌우 반전 꺼짐'); }
+async function setCameraRes(){ const v=$('camera_res').value;
+  toast('카메라 '+v.toUpperCase()+' 전환중…');
+  await fetch('/api/settings',{method:'POST',body:JSON.stringify({camera_res:v})}); }
 async function setHold(){ let h=parseInt($('hold').value); if(isNaN(h))return; h=Math.min(30,Math.max(1,h)); $('hold').value=h;
   await fetch('/api/settings',{method:'POST',body:JSON.stringify({hold:h})}); toast('확정 카운트 '+h+'회 저장됨'); }
 async function setMotion(){ const b={};
@@ -491,6 +520,8 @@ async function poll(){
      if(s.engine.arm_down!=null) $('arm_down').value=s.engine.arm_down;
      $('gest').checked=s.engine.gesture_enabled;
      $('flip').checked=!!s.engine.flip;
+     $('swap_lr').checked=!!s.engine.swap_lr;
+     if(s.camera&&s.camera.res&&$('camera_res').querySelector('[value="'+s.camera.res+'"]')) $('camera_res').value=s.camera.res;
      if(s.location){$('lat').value=s.location.lat||''; $('lon').value=s.location.lon||'';}
      profilesLoaded=true;
    }
@@ -545,7 +576,7 @@ MANIFEST = json.dumps({
 SW_JS = "self.addEventListener('fetch',()=>{});"   # minimal (enables install)
 
 
-def make_handler(proc, engine, controller, remote, auth_enabled=True):
+def make_handler(proc, engine, controller, remote, cameramgr, auth_enabled=True):
     class H(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
 
@@ -615,6 +646,9 @@ def make_handler(proc, engine, controller, remote, auth_enabled=True):
                     "engine": engine.state(),
                     "curtain": controller.snapshot(),
                     "system": system_info(),
+                    "camera": {"res": _res_name(cameramgr.width, cameramgr.height),
+                               "width": cameramgr.width, "height": cameramgr.height,
+                               "capture_fps": round(cameramgr.capture_fps, 1)},
                     "profiles": engine.available_profiles(),
                     "schedules": store.list_schedules(),
                     "location": {"lat": store.get_setting("lat"),
@@ -707,6 +741,16 @@ def make_handler(proc, engine, controller, remote, auth_enabled=True):
                     f = bool(data["flip"])
                     engine.set_flip(f)
                     store.set_setting("flip", "1" if f else "0")
+                if "swap_lr" in data:
+                    sw = bool(data["swap_lr"])
+                    engine.set_swap_lr(sw)
+                    store.set_setting("swap_lr", "1" if sw else "0")
+                if "camera_res" in data:
+                    key = str(data["camera_res"]).lower()
+                    if key in CAMERA_RES:
+                        w, h = CAMERA_RES[key]
+                        cameramgr.set_resolution(w, h)   # 카메라 재오픈(~0.5s)
+                        store.set_setting("camera_res", key)
                 if "motion_hold_sec" in data:
                     v = min(4.0, max(0.5, float(data["motion_hold_sec"])))
                     engine.set_motion_timing(hold_sec=v)
@@ -813,7 +857,8 @@ def main():
                         motion_swipe_dist=_fget("motion_swipe_dist"),
                         arm_extend=_fget("arm_extend"),
                         arm_down=_fget("arm_down"),
-                        dyn_conf=(store.get_setting("dyn_conf") or "1") == "1")
+                        dyn_conf=(store.get_setting("dyn_conf") or "1") == "1",
+                        swap_lr=(store.get_setting("swap_lr") == "1"))
     g = store.get_setting("gesture_enabled")
     if g is not None:
         engine.set_gesture_enabled(g == "1")
@@ -834,18 +879,23 @@ def main():
         except Exception as e:
             log.warning("BLE 시작 실패: %s", e)
 
-    pipeline = isp_gst_pipeline(width=args.width, height=args.height, fps=args.fps)
-    cam = CameraThread(pipeline)
+    # 초기 해상도: DB 저장값(웹에서 선택) > config.env(args)
+    saved_res = store.get_setting("camera_res")
+    init_w, init_h = (CAMERA_RES[saved_res] if saved_res in CAMERA_RES
+                      else (args.width, args.height))
+    cam = CameraManager(
+        lambda w, h, fps: isp_gst_pipeline(width=w, height=h, fps=fps),
+        init_w, init_h, args.fps)
+    cam.start()
     proc = ProcessThread(cam.slot, jpeg_quality=args.quality,
                          process_fn=engine.process, fps_fn=draw_fps)
-    cam.start()
     proc.start()
 
     if args.no_auth:
         log.warning("로그인 비활성화 (개발용) — 인증 없이 접근 가능")
     server = ThreadingHTTPServer((args.host, args.port),
                                  make_handler(proc, engine, controller, remote,
-                                              auth_enabled=not args.no_auth))
+                                              cam, auth_enabled=not args.no_auth))
     log.info("dashboard ready: http://<board-ip>:%d", args.port)
     print(f"\n  ▶ 대시보드 →  http://<board-ip>:{args.port}   (Ctrl+C 종료)\n")
     try:

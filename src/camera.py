@@ -29,6 +29,13 @@ def open_source(source, width=1280, height=720):
     """
     if isinstance(source, str) and "!" in source:
         cap = cv2.VideoCapture(source, cv2.CAP_GSTREAMER)
+        # GStreamer 파이프라인은 해상도가 caps 문자열에 이미 고정돼 있다.
+        # 여기에 cap.set(FRAME_WIDTH/HEIGHT)를 걸면 다른 값일 때 재협상하다
+        # 'Internal data stream error'로 실패한다(720p가 아닌 해상도에서 발현).
+        # → 파이프라인 소스는 cap.set 생략.
+        if not cap.isOpened():
+            raise RuntimeError(f"Could not open source: {source!r}")
+        return cap
     elif isinstance(source, str) and source.isdigit():
         cap = cv2.VideoCapture(int(source))
     else:

@@ -12,6 +12,7 @@ import cv2
 from profiles import get_profile, PROFILES
 from hand_pose import HandPose
 from gesture import GestureStabilizer
+import gesture as gesture_hand
 import gesture_motion
 import gesture_body
 from draw import draw_detections, draw_hud, draw_motion_debug
@@ -27,7 +28,7 @@ class PoseEngine:
     def __init__(self, profile_name, conf=0.3, controller=None, hold=3, flip=False,
                  motion_hold_sec=None, motion_refractory_sec=None,
                  motion_swipe_dist=None, arm_extend=None, arm_down=None,
-                 dyn_conf=True):
+                 dyn_conf=True, swap_lr=None):
         self.conf = conf                       # full(가까운 큰 박스) 신뢰도 기준
         self.dyn_conf = bool(dyn_conf)         # 박스 크기 적응형(작을수록 관대)
         self.controller = controller
@@ -48,6 +49,9 @@ class PoseEngine:
         gesture_body.set_arm_extend(self.arm_extend)
         self.arm_down = (float(arm_down) if arm_down else gesture_body.ARM_DOWN)
         gesture_body.set_arm_down(self.arm_down)
+        # 손(hand_near): 엄지 좌우 ↔ 열림/닫힘 매핑 반전 여부
+        self.swap_lr = bool(swap_lr) if swap_lr is not None else False
+        gesture_hand.set_swap_lr(self.swap_lr)
         self.stabilizer = GestureStabilizer(hold=self.hold)
 
         self._lock = threading.Lock()
@@ -134,6 +138,11 @@ class PoseEngine:
         """body_far 팔 수평 인정 높이의 '어깨 아래' 허용치를 런타임에 변경."""
         self.arm_down = float(v)
         gesture_body.set_arm_down(self.arm_down)
+
+    def set_swap_lr(self, on):
+        """hand_near 엄지 좌우 ↔ 열림/닫힘 매핑 반전을 런타임에 변경."""
+        self.swap_lr = bool(on)
+        gesture_hand.set_swap_lr(self.swap_lr)
 
     def set_motion_timing(self, hold_sec=None, refractory_sec=None,
                           swipe_dist=None):
@@ -247,6 +256,7 @@ class PoseEngine:
             "motion_swipe_dist": round(self.motion_swipe_dist, 2),
             "arm_extend": round(self.arm_extend, 2),
             "arm_down": round(self.arm_down, 2),
+            "swap_lr": self.swap_lr,
             "event_seq": self.gesture_event,
             "event_label": self.gesture_event_label,
             **self.stats,

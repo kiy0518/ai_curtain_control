@@ -54,12 +54,16 @@ class LatestSlot:
 
 
 class CameraThread(threading.Thread):
-    """Continuously grab frames into a drop-old slot. Never blocks on consumers."""
+    """Continuously grab frames into a drop-old slot. Never blocks on consumers.
 
-    def __init__(self, pipeline):
+    An external ``slot`` can be supplied so a CameraManager can swap the capture
+    resolution (new thread, same slot) without the consumer noticing.
+    """
+
+    def __init__(self, pipeline, slot=None):
         super().__init__(daemon=True)
         self.pipeline = pipeline
-        self.slot = LatestSlot()
+        self.slot = slot if slot is not None else LatestSlot()
         self._running = True
         self.capture_fps = 0.0
 
@@ -81,6 +85,53 @@ class CameraThread(threading.Thread):
 
     def stop(self):
         self._running = False
+
+
+class CameraManager:
+    """Owns the active CameraThread and can swap capture resolution at runtime.
+
+    A single stable ``slot`` is shared across resolution swaps, so the
+    downstream ProcessThread keeps reading the same slot and never needs
+    repointing (its version counter stays monotonic).
+    """
+
+    def __init__(self, pipeline_fn, width, height, fps):
+        self.pipeline_fn = pipeline_fn      # (w, h, fps) -> gst pipeline string
+        self.fps = fps
+        self.width = width
+        self.height = height
+        self.slot = LatestSlot()            # stable across swaps
+        self._lock = threading.Lock()
+        self.cam = None
+
+    def start(self):
+        self._open(self.width, self.height)
+
+    def _open(self, w, h):
+        cam = CameraThread(self.pipeline_fn(w, h, self.fps), slot=self.slot)
+        cam.start()
+        self.cam = cam
+        self.width, self.height = w, h
+
+    def set_resolution(self, w, h):
+        """Stop current capture, re-open at (w, h). Brief (~0.5s) no-frame gap;
+        the slot keeps the last frame so consumers don't stall."""
+        with self._lock:
+            if self.cam is not None and (w, h) == (self.width, self.height):
+                return
+            old = self.cam
+            if old is not None:
+                old.stop()
+                old.join(timeout=3.0)       # wait for the camera to be released
+            self._open(w, h)
+
+    @property
+    def capture_fps(self):
+        return self.cam.capture_fps if self.cam is not None else 0.0
+
+    def stop(self):
+        if self.cam is not None:
+            self.cam.stop()
 
 
 class ProcessThread(threading.Thread):

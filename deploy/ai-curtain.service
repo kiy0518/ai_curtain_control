@@ -15,6 +15,9 @@ Description=AI Curtain Control (camera + NPU gesture + dashboard)
 Type=simple
 User=radxa
 SupplementaryGroups=dialout video render
+# 4K(io-mode=4 DMABUF) 캡처는 프레임당 ~12MB locked memory 필요.
+# 기본 8MB 한계면 "Internal data stream error"로 파이프라인이 안 열림.
+LimitMEMLOCK=infinity
 WorkingDirectory=/home/radxa/Documents/ai_curtain_control
 EnvironmentFile=-/home/radxa/Documents/ai_curtain_control/config.env
 ExecStart=/usr/bin/python3 app.py
