@@ -128,7 +128,9 @@ def _decode_split(outputs, letterbox, num_keypoints, num_classes,
                 (gx + ltrb[2]) * stride, (gy + ltrb[3]) * stride], axis=1))
             scores_all.append(cls_score[keep])
             if kpt_out is not None:
-                kp = kpt_out[0, :, anchor_offset + keep].T.reshape(
+                # numpy 고급 인덱싱: kpt_out[0,:,idx] 결과는 (len(idx), 63) (advanced
+                # 인덱스가 슬라이스로 분리돼 앞으로 옴) → .T 없이 바로 reshape.
+                kp = kpt_out[0, :, anchor_offset + keep].reshape(
                     -1, num_keypoints, 3).astype(np.float32).copy()
                 # v8·v11 모두 kpt x,y 는 이미 입력 픽셀좌표(디코드 불필요).
                 # conf 는 raw 가 [0,1] 확률이면 sigmoid 생략, 아니면 sigmoid.
