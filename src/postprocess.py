@@ -101,7 +101,7 @@ def _decode_split(outputs, letterbox, num_keypoints, num_classes,
         if o.shape[1] == kpt_ch:                       # v8: (1, 63, anchors)
             kpt_out = o.reshape(1, kpt_ch, -1)
         elif o.ndim == 4 and o.shape[1] == num_keypoints and o.shape[2] == 3:
-            kpt_out = o.reshape(1, kpt_ch, -1)         # v11: (1, 21, 3, anchors)
+            kpt_out = o.reshape(1, kpt_ch, -1)         # v11(YOLO11): (1, 21, 3, anchors)
         elif o.shape[1] == det_ch:
             det.append(o)
     det.sort(key=lambda o: o.shape[2] * o.shape[3], reverse=True)
@@ -130,7 +130,10 @@ def _decode_split(outputs, letterbox, num_keypoints, num_classes,
             if kpt_out is not None:
                 kp = kpt_out[0, :, anchor_offset + keep].T.reshape(
                     -1, num_keypoints, 3).astype(np.float32).copy()
-                kp[:, :, 2] = _sigmoid(kp[:, :, 2])
+                # v8·v11 모두 kpt x,y 는 이미 입력 픽셀좌표(디코드 불필요).
+                # conf 는 raw 가 [0,1] 확률이면 sigmoid 생략, 아니면 sigmoid.
+                if kp[:, :, 2].max() > 1.0 or kp[:, :, 2].min() < 0.0:
+                    kp[:, :, 2] = _sigmoid(kp[:, :, 2])
                 kpts_all.append(kp)
         anchor_offset += H * W
 
