@@ -14,10 +14,22 @@ from postprocess import decode
 from constants import INPUT_SIZE, NUM_KEYPOINTS, NUM_CLASSES, HAND_SKELETON
 
 
+# 뼈길이/박스대각 비가 이 이상이면 키포인트 뒤섞임(잘못된 chirality) 의심
+# (실측: 정상 ~2.3, 스크램블 ~3.4) → 조건부 TTA 트리거 임계
+CHIRALITY_RATIO = 2.8
+
+
 def _bone_len(kp, skeleton):
     """스켈레톤 뼈 길이 합 — 키포인트가 올바르면 작고, 뒤섞이면(교차) 크다."""
     return float(sum(np.hypot(kp[a, 0] - kp[b, 0], kp[a, 1] - kp[b, 1])
                      for a, b in skeleton))
+
+
+def _plausible(d, skeleton):
+    """손 키포인트가 그럴듯한가 = 뼈길이 합이 박스 대각선 대비 과대하지 않은가."""
+    b = d["box"]
+    diag = float(np.hypot(b[2] - b[0], b[3] - b[1])) + 1e-6
+    return _bone_len(d["keypoints"], skeleton) / diag <= CHIRALITY_RATIO
 
 
 def _iou(a, b):
@@ -90,7 +102,9 @@ class HandPose:
 
     def infer(self, frame_bgr):
         a = self._run(frame_bgr)
-        if not self.tta:
+        # 조건부 TTA: 모든 손이 그럴듯하면 1회 추론으로 끝(FPS 유지).
+        # 뒤섞인(chirality 오류) 손이 있을 때만 좌우반전 추론 추가(2x).
+        if not self.tta or not a or all(_plausible(d, self.skeleton) for d in a):
             return a
         # 좌우반전본도 추론(모델이 잘 맞추는 손모양으로 만들어줌) → 좌표 복원 후 병합
         H, W = frame_bgr.shape[:2]
