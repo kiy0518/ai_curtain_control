@@ -46,6 +46,13 @@ def main():
     p.add_argument("--fliplr", type=float, default=0.5,
                    help="L-R flip augmentation prob. KEEP > 0 — this is what "
                         "teaches BOTH hands. 0 reproduces the one-hand bug.")
+    p.add_argument("--scale", type=float, default=0.9,
+                   help="Scale aug gain: each image randomly scaled in "
+                        "[1-scale, 1+scale] = [0.1, 1.9]. 0.9 teaches FAR(small) "
+                        "AND near(large) hands -> extends detection range. "
+                        "원본/큰 손도 그대로 학습됨(작은 손을 추가할 뿐).")
+    p.add_argument("--mosaic", type=float, default=1.0,
+                   help="Mosaic aug prob (4 images tiled -> more small hands).")
     p.add_argument("--patience", type=int, default=20,
                    help="Early-stop patience (0 = off)")
     p.add_argument("--resume", default=None,
@@ -78,6 +85,8 @@ def main():
             name=args.name,
             project=args.project,
             fliplr=args.fliplr,                # <-- the chirality fix
+            scale=args.scale,                  # <-- 먼/작은 손까지 학습(거리 확장)
+            mosaic=args.mosaic,                # <-- 작은 손 추가 노출
             patience=args.patience,
             verbose=False,                     # 상세 로그 끔(진행은 위 콜백)
         )
