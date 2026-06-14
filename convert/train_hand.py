@@ -53,6 +53,11 @@ def main():
                         "원본/큰 손도 그대로 학습됨(작은 손을 추가할 뿐).")
     p.add_argument("--mosaic", type=float, default=1.0,
                    help="Mosaic aug prob (4 images tiled -> more small hands).")
+    p.add_argument("--workers", type=int, default=8,
+                   help="DataLoader workers. Windows에서 epoch 끝 크래시/행이면 "
+                        "0(또는 2)로 낮추세요.")
+    p.add_argument("--cache", default=None,
+                   help="이미지 캐시: 'ram' 또는 'disk' (워커 문제 회피에 도움)")
     p.add_argument("--patience", type=int, default=20,
                    help="Early-stop patience (0 = off)")
     p.add_argument("--resume", default=None,
@@ -87,6 +92,8 @@ def main():
             fliplr=args.fliplr,                # <-- the chirality fix
             scale=args.scale,                  # <-- 먼/작은 손까지 학습(거리 확장)
             mosaic=args.mosaic,                # <-- 작은 손 추가 노출
+            workers=args.workers,              # <-- Windows 워커 충돌 시 0/2
+            cache=args.cache if args.cache else False,
             patience=args.patience,
             verbose=False,                     # 상세 로그 끔(진행은 위 콜백)
         )
